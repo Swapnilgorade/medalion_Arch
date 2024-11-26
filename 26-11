@@ -1,0 +1,102 @@
+import logging
+from datetime import datetime
+from pyspark.sql import SparkSession
+from pyspark.sql import Row
+from pyspark.sql.types import StructType, StructField, StringType, TimestampType
+import os
+
+class FileAndDeltaLogger:
+    def __init__(self, log_file_dir, delta_table_path):
+        self.log_file_dir = log_file_dir
+        self.delta_table_path = delta_table_path
+        self.spark = self._init_spark_session()
+        self.logger = self._setup_logger()
+
+    def _init_spark_session(self):
+        # Initialize Spark session
+        return SparkSession.builder \
+            .appName("FileAndDeltaLogger") \
+            .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
+            .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
+            .getOrCreate()
+
+    def _setup_logger(self):
+        # Create a logger
+        logger = logging.getLogger(__name__)
+        logger.setLevel(logging.DEBUG)
+
+        # Ensure the log directory exists
+        os.makedirs(self.log_file_dir, exist_ok=True)
+
+        # Create a unique file handler for each session
+        log_file_name = os.path.join(self.log_file_dir, f"logfile_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+        file_handler = logging.FileHandler(log_file_name)
+        file_handler.setLevel(logging.DEBUG)
+
+        # Create a formatter and add it to the file handler
+        formatter = logging.Formatter('%(asctime)s:%(levelname)s:%(message)s')
+        file_handler.setFormatter(formatter)
+
+        # Add the file handler to the logger
+        logger.addHandler(file_handler)
+
+        # Add a custom Delta table handler
+        delta_handler = DeltaTableHandler(self.spark, self.delta_table_path)
+        delta_handler.setFormatter(formatter)
+        logger.addHandler(delta_handler)
+
+        return logger
+
+class DeltaTableHandler(logging.Handler):
+    def __init__(self, spark, delta_table_path):
+        super().__init__()
+        self.spark = spark
+        self.delta_table_path = delta_table_path
+
+        # Define schema for the Delta table
+        self.schema = StructType([
+            StructField("timestamp", TimestampType(), False),
+            StructField("log_level", StringType(), False),
+            StructField("message", StringType(), True)
+        ])
+
+        # Ensure the Delta table exists
+        self._create_delta_table_if_not_exists()
+
+    def _create_delta_table_if_not_exists(self):
+        try:
+            # Create an empty DataFrame
+            empty_df = self.spark.createDataFrame([], self.schema)
+            # Write to Delta format if the table does not exist
+            empty_df.write.format("delta").mode("ignore").save(self.delta_table_path)
+        except Exception as e:
+            print(f"Error creating Delta table: {e}")
+
+    def emit(self, record):
+        # Convert the log record into a dictionary
+        log_entry = {
+            "timestamp": datetime.now(),
+            "log_level": record.levelname,
+            "message": self.format(record)
+        }
+
+        # Write log entry to the Delta table
+        try:
+            log_df = self.spark.createDataFrame([Row(**log_entry)])
+            log_df.write.format("delta").mode("append").save(self.delta_table_path)
+        except Exception as e:
+            print(f"Error logging to Delta table: {e}")
+
+# Example usage
+if __name__ == "__main__":
+    # Define log file directory and Delta table path
+    log_file_dir = "./logs"  # Change this to your desired directory
+    delta_table_path = "abfss://<your-container>@<your-storage-account>.dfs.core.windows.net/LH_log/delta_log_table"
+
+    # Initialize the logger
+    logger = FileAndDeltaLogger(log_file_dir, delta_table_path).logger
+
+    # Log sample data
+    logger.info("This is an INFO log.")
+    logger.error("This is an ERROR log.")
+    logger.debug("This is a DEBUG log.")
