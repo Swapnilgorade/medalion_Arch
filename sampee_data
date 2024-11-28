@@ -1,0 +1,38 @@
+
+    spark = SparkSession.builder \
+        .appName("Data Validation") \
+        .getOrCreate()
+
+    # Sample Data
+    data = [
+        (1, "Alice", 25, 55000.0),
+        (2, "Bob", 30, 60000.0),
+        (3, "Charlie", 35, 70000.0),
+        (4, "David", 28, 58000.0),
+        (5, "Eva", 26, 56000.0),
+        (6, "Frank", 40, 80000.0),
+        (7, "Grace", 29, 59000.0),
+        (8, "Hank", 33, 72000.0),
+        (9, "Ivy", 31, 61000.0),
+        (10, "Jack", 38, 75000.0),
+        (11, "Karen", 27, 57000.0),
+        (12, "Leo", 36, 78000.0),
+        (13, "Mia", 32, 63000.0),
+        (14, "Noah", 39, 77000.0),
+        (15, "Olivia", 24, 54000.0)
+    ]
+
+    schema = ["id", "name", "age", "salary"]
+    df = spark.createDataFrame(data, schema)
+
+    # Path to config file
+    config_path = path
+
+    # Validate the DataFrame
+    validator = DataValidator(df, config_path)
+    is_valid = validator.validate()
+
+    # if is_valid:
+    #     print("All validations passed.")
+    # else:
+    #     print("Some validations failed.")
