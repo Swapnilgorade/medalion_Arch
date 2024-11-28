@@ -37,6 +37,20 @@ class DataValidator:
             elif expected_type == "string" and not self.df.schema[column].dataType.simpleString() == "string":
                 print(f"Validation Failed: Column '{column}' is not of type 'string'.")
                 return False
+            elif expected_type == "date":
+                if not isinstance(self.df.schema[column].dataType, DateType):
+                    print(f"Validation Failed: Column '{column}' is not of type 'date'.")
+                    return False
+
+                # Check if date format is correct if specified
+                if 'date_format' in rules.get("constraints", {}):
+                    date_format = rules["constraints"]["date_format"]
+                    invalid_dates_count = self.df.filter(
+                        ~col(column).rlike(f"^{date_format}$")
+                    ).count()
+                    if invalid_dates_count > 0:
+                        print(f"Validation Failed: Column '{column}' has {invalid_dates_count} value(s) with incorrect date format.")
+                        return False
 
         # Check unique values
         if rules.get("constraints", {}).get("unique", False):
