@@ -1,0 +1,34 @@
+{
+  "validations": {
+    "id": {
+      "type": "integer",
+      "constraints": {
+        "non_null": true,
+        "unique": true
+      }
+    },
+    "name": {
+      "type": "string",
+      "constraints": {
+        "non_null": true,
+        "max_length": 50
+      }
+    },
+    "age": {
+      "type": "integer",
+      "constraints": {
+        "non_null": true,
+        "min": 18,
+        "max": 65
+      }
+    },
+    "salary": {
+      "type": "float",
+      "constraints": {
+        "non_null": true,
+        "min": 20000.0,
+        "max": 100000.0
+      }
+    }
+  }
+}
