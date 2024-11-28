@@ -1,0 +1,131 @@
+from pyspark.sql import *
+from pyspark.sql.functions import *
+import json
+
+class DataValidator:
+    def __init__(self, df, config_file):
+        """
+        Initialize the DataValidator with a DataFrame and a config file.
+        """
+        self.df = df
+        with open(config_file, 'r') as file:
+            self.config = json.load(file)['validations']
+
+    def validate_column(self, column, rules):
+        """
+        Validate a single column based on the rules in the config.
+        """
+        if column not in self.df.columns:
+            print(f"Error: Column '{column}' is missing from the DataFrame.")
+            return False
+
+        # Check for non-null values
+        if rules.get("constraints", {}).get("non_null", False):
+            null_count = self.df.filter(self.df[column].isNull()).count()
+            if null_count > 0:
+                print(f"Validation Failed: Column '{column}' has {null_count} null value(s).")
+                return False
+
+        # Check data type
+        expected_type = rules.get("type")
+        if expected_type:
+            if expected_type == "integer" and not self.df.schema[column].dataType.simpleString() == "int":
+                print(f"Validation Failed: Column '{column}' is not of type 'integer'.")
+                return False
+            elif expected_type == "float" and not self.df.schema[column].dataType.simpleString() == "float":
+                print(f"Validation Failed: Column '{column}' is not of type 'float'.")
+                return False
+            elif expected_type == "string" and not self.df.schema[column].dataType.simpleString() == "string":
+                print(f"Validation Failed: Column '{column}' is not of type 'string'.")
+                return False
+            elif expected_type == "date" and not self.df.schema[column].dataType.simpleString() == "date":
+                print(f"Validation Failed: Column '{column}' is not of type 'date'.")
+                return False
+
+        # Check unique values
+        if rules.get("constraints", {}).get("unique", False):
+            duplicate_count = self.df.groupBy(column).count().filter("count > 1").count()
+            if duplicate_count > 0:
+                print(f"Validation Failed: Column '{column}' has duplicate values.")
+                return False
+
+        # Check range (min, max)
+        min_value = rules.get("constraints", {}).get("min")
+        if min_value is not None:
+            min_violations = self.df.filter(self.df[column] < min_value).count()
+            if min_violations > 0:
+                print(f"Validation Failed: Column '{column}' has {min_violations} value(s) below minimum {min_value}.")
+                return False
+
+        max_value = rules.get("constraints", {}).get("max")
+        if max_value is not None:
+            max_violations = self.df.filter(self.df[column] > max_value).count()
+            if max_violations > 0:
+                print(f"Validation Failed: Column '{column}' has {max_violations} value(s) above maximum {max_value}.")
+                return False
+
+        # Check max length for string
+        if rules.get("constraints", {}).get("max_length") and expected_type == "string":
+            max_length = rules["constraints"]["max_length"]
+            length_violations = self.df.filter(self.df[column].rlike(f".{{{max_length+1},}}")).count()
+            if length_violations > 0:
+                print(f"Validation Failed: Column '{column}' has {length_violations} value(s) exceeding length {max_length}.")
+                return False
+
+        # Validate date format if specified
+        date_format = rules.get("constraints", {}).get("date_format")
+        if date_format:
+            # Check if the column's data type is StringType before applying the date format check
+            column_type = self.df.schema[column].dataType.simpleString()
+            if column_type == "string":
+                # Try converting the column to date format
+                invalid_dates = self.df.filter(to_date(self.df[column], date_format).isNull()).count()
+                if invalid_dates > 0:
+                    print(f"Validation Failed: Column '{column}' has {invalid_dates} invalid date format(s).")
+                    return False
+            elif column_type == "date":
+                # Ensure all values are valid dates (no nulls or invalid entries)
+                invalid_dates = self.df.filter(self.df[column].isNull()).count()
+                if invalid_dates > 0:
+                    print(f"Validation Failed: Column '{column}' has {invalid_dates} invalid date value(s).")
+                    return False
+
+        print(f"Column '{column}' passed all validations.")
+        return True
+
+    def validate(self):
+        """
+        Validate all columns based on the config file.
+        """
+        results = []
+        for column, rules in self.config.items():
+            results.append(self.validate_column(column, rules))
+        return all(results)
+
+# Example Usage
+
+# Example configuration for validations
+config = {
+    "validations": {
+        "date_column": {
+            "constraints": {
+                "date_format": "yyyy-MM-dd",
+                "type": "date"
+            }
+        },
+        "age": {
+            "constraints": {
+                "min": 18,
+                "max": 100
+            },
+            "type": "integer"
+        }
+    }
+}
+
+# Assuming you already have a DataFrame `df` with relevant columns.
+# For example, df = spark.read.csv("your_file.csv", header=True, inferSchema=True)
+
+# validator = DataValidator(df, config)
+# result = validator.validate()
+# print(f"Validation result: {result}")
