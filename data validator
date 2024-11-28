@@ -1,0 +1,87 @@
+import json
+from pyspark.sql import SparkSession
+
+class DataValidator:
+    def __init__(self, df, config_file = None):
+        """
+        Initialize the DataValidator with a DataFrame and a config file.
+        """
+        self.df = df
+        # with open(config_file, 'r') as file:
+        self.config = json.load(config_file)['validations']
+
+    def validate_column(self, column, rules):
+        """
+        Validate a single column based on the rules in the config.
+        """
+        if column not in self.df.columns:
+            print(f"Error: Column '{column}' is missing from the DataFrame.")
+            return False
+
+        # Check for non-null values
+        if rules.get("constraints", {}).get("non_null", False):
+            null_count = self.df.filter(self.df[column].isNull()).count()
+            if null_count > 0:
+                print(f"Validation Failed: Column '{column}' has {null_count} null value(s).")
+                return False
+
+        # Check data type
+        expected_type = rules.get("type")
+        if expected_type:
+            if expected_type == "integer" and not self.df.schema[column].dataType.simpleString() == "int":
+                print(f"Validation Failed: Column '{column}' is not of type 'integer'.")
+                return False
+            elif expected_type == "float" and not self.df.schema[column].dataType.simpleString() == "float":
+                print(f"Validation Failed: Column '{column}' is not of type 'float'.")
+                return False
+            elif expected_type == "string" and not self.df.schema[column].dataType.simpleString() == "string":
+                print(f"Validation Failed: Column '{column}' is not of type 'string'.")
+                return False
+
+        # Check unique values
+        if rules.get("constraints", {}).get("unique", False):
+            duplicate_count = self.df.groupBy(column).count().filter("count > 1").count()
+            if duplicate_count > 0:
+                print(f"Validation Failed: Column '{column}' has duplicate values.")
+                return False
+
+        # Check range (min, max)
+        min_value = rules.get("constraints", {}).get("min")
+        if min_value is not None:
+            min_violations = self.df.filter(self.df[column] < min_value).count()
+            if min_violations > 0:
+                print(f"Validation Failed: Column '{column}' has {min_violations} value(s) below minimum {min_value}.")
+                return False
+
+        max_value = rules.get("constraints", {}).get("max")
+        if max_value is not None:
+            max_violations = self.df.filter(self.df[column] > max_value).count()
+            if max_violations > 0:
+                print(f"Validation Failed: Column '{column}' has {max_violations} value(s) above maximum {max_value}.")
+                return False
+
+        # Check max length for string
+        if rules.get("constraints", {}).get("max_length") and expected_type == "string":
+            max_length = rules["constraints"]["max_length"]
+            length_violations = self.df.filter(self.df[column].rlike(f".{{{max_length+1},}}")).count()
+            if length_violations > 0:
+                print(f"Validation Failed: Column '{column}' has {length_violations} value(s) exceeding length {max_length}.")
+                return False
+
+        print(f"Column '{column}' passed all validations.")
+        return True
+
+    def validate(self):
+        """
+        Validate all columns based on the config file.
+        """
+        results = []
+        for column, rules in self.config.items():
+            results.append(self.validate_column(column, rules))
+        return all(results)
+
+# Example Usage
+
+
+    # # Stop SparkSession
+    # spark.stop()
