@@ -36,3 +36,46 @@
     #     print("All validations passed.")
     # else:
     #     print("Some validations failed.")
+
+
+
+
+
+
+#sample data 2
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import lit
+
+# Initialize Spark session
+spark = SparkSession.builder \
+    .appName("Sample Data") \
+    .getOrCreate()
+
+# Sample data
+data = [
+    (1, "Alice", 25, "1999-01-01", 55000.0),
+    (2, "Bob", 30, "1994-02-15", 60000.0),
+    (3, "Charlie", 35, "1989-03-20", 70000.0),
+    (4, "David", 28, "1996-04-10", 58000.0),
+    (5, "Eva", 26, "1998-05-05", 56000.0),
+    (6, "Frank", 40, "1984-06-30", 80000.0),
+    (7, "Grace", 29, "1995-07-12", 59000.0),
+    (8, "Hank", 33, "1991-08-25", 72000.0),
+    (9, "Ivy", 31, "1993-09-18", 61000.0),
+    (10, "Jack", 38, "1986-10-03", 75000.0),
+    (11, "Karen", 27, "1997-11-14", 57000.0),
+    (12, "Leo", 36, "1988-12-22", 78000.0),
+    (13, "Mia", 32, "1992-01-09", 63000.0),
+    (14, "Noah", 39, "1985-02-17", 77000.0),
+    (15, "Olivia", 24, "2000-03-29", 54000.0)
+]
+
+# Define schema
+schema = ["id", "name", "age", "dob", "salary"]
+
+# Create DataFrame
+df = spark.createDataFrame(data, schema)
+
+# Show the DataFrame
+df.show(truncate=False)
+
