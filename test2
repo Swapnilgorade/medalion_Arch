@@ -1,0 +1,91 @@
+import unittest
+from pyspark.sql import SparkSession
+import json
+from data_validator import DataValidator  # Assuming your main code is saved in a file named data_validator.py
+
+class TestDataValidator(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.spark = SparkSession.builder.master("local[1]").appName("DataValidatorTest").getOrCreate()
+
+    def setUp(self):
+        # Sample data for testing
+        self.data = [
+            (1, "Alice", 25, "2023-01-01"),
+            (2, "Bob", 17, "2023-13-01"),  # Invalid date
+            (3, None, 30, "2022-12-31"),    # Null name
+            (4, "Alice", 110, "2021-01-01") # Duplicate name, age out of range
+        ]
+        self.schema = ["id", "name", "age", "join_date"]
+        self.df = self.spark.createDataFrame(self.data, self.schema)
+
+        # Sample config
+        self.config = {
+            "validations": {
+                "name": {
+                    "constraints": {
+                        "non_null": True,
+                        "unique": True
+                    },
+                    "type": "string"
+                },
+                "age": {
+                    "constraints": {
+                        "min": 18,
+                        "max": 100
+                    },
+                    "type": "integer"
+                },
+                "join_date": {
+                    "constraints": {
+                        "date_format": "yyyy-MM-dd"
+                    },
+                    "type": "string"
+                }
+            }
+        }
+
+        with open("test_config.json", "w") as file:
+            json.dump(self.config, file)
+
+        self.validator = DataValidator(self.df, "test_config.json")
+
+    def test_non_null_column(self):
+        violated_ids = self.validator.validate_column("name", self.config["validations"]["name"])
+        self.assertIn(3, violated_ids)  # Null name should fail
+
+    def test_unique_column(self):
+        violated_ids = self.validator.validate_column("name", self.config["validations"]["name"])
+        self.assertIn(4, violated_ids)  # Duplicate name should fail
+
+    def test_min_value(self):
+        violated_ids = self.validator.validate_column("age", self.config["validations"]["age"])
+        self.assertIn(2, violated_ids)  # Age below minimum should fail
+
+    def test_max_value(self):
+        violated_ids = self.validator.validate_column("age", self.config["validations"]["age"])
+        self.assertIn(4, violated_ids)  # Age above maximum should fail
+
+    def test_date_format(self):
+        violated_ids = self.validator.validate_column("join_date", self.config["validations"]["join_date"])
+        self.assertIn(2, violated_ids)  # Invalid date format should fail
+
+    def test_validate_all(self):
+        all_violated_ids = self.validator.validate()
+        expected_ids = {2, 3, 4}  # Aggregated violations
+        self.assertEqual(set(all_violated_ids), expected_ids)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.spark.stop()
+
+
+# Run the tests programmatically in a notebook
+def run_tests():
+    suite = unittest.TestLoader().loadTestsFromTestCase(TestDataValidator)
+    runner = unittest.TextTestRunner()
+    runner.run(suite)
+
+
+# Execute the tests
+run_tests()
