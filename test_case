@@ -1,0 +1,81 @@
+import unittest
+from pyspark.sql import SparkSession
+
+class TestDataValidation(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.spark = SparkSession.builder.master("local[1]").appName("DataValidationTest").getOrCreate()
+
+    def validate_non_null(self, df, column):
+        return df.filter(f"{column} IS NULL").collect()
+
+    def validate_unique(self, df, column):
+        duplicates = df.groupBy(column).count().filter("count > 1").collect()
+        return [row[column] for row in duplicates]
+
+    def validate_range(self, df, column, min_val=None, max_val=None):
+        errors = []
+        if min_val is not None:
+            errors += df.filter(f"{column} < {min_val}").collect()
+        if max_val is not None:
+            errors += df.filter(f"{column} > {max_val}").collect()
+        return errors
+
+    def validate_date_format(self, df, column, date_format):
+        from pyspark.sql.functions import to_date
+        invalid_dates = df.filter(to_date(df[column], date_format).isNull()).collect()
+        return invalid_dates
+
+    def test_non_null_column(self):
+        data = [(1, "Alice"), (2, "Bob")]
+        schema = ["id", "name"]
+        df = self.spark.createDataFrame(data, schema)
+        result = self.validate_non_null(df, "name")
+        self.assertEqual(len(result), 0)  # No nulls expected
+
+    def test_null_column(self):
+        data = [(1, "Alice"), (2, None)]
+        schema = ["id", "name"]
+        df = self.spark.createDataFrame(data, schema)
+        result = self.validate_non_null(df, "name")
+        self.assertEqual(len(result), 1)  # One null value expected
+
+    def test_unique_column(self):
+        data = [(1, "Alice"), (2, "Bob")]
+        schema = ["id", "name"]
+        df = self.spark.createDataFrame(data, schema)
+        result = self.validate_unique(df, "name")
+        self.assertEqual(len(result), 0)  # No duplicates expected
+
+    def test_duplicate_column(self):
+        data = [(1, "Alice"), (2, "Alice")]
+        schema = ["id", "name"]
+        df = self.spark.createDataFrame(data, schema)
+        result = self.validate_unique(df, "name")
+        self.assertEqual(len(result), 1)  # One duplicate group expected
+
+    def test_min_value(self):
+        data = [(1, 15), (2, 20)]
+        schema = ["id", "age"]
+        df = self.spark.createDataFrame(data, schema)
+        result = self.validate_range(df, "age", min_val=18)
+        self.assertEqual(len(result), 1)  # One value below minimum expected
+
+    def test_max_value(self):
+        data = [(1, 70), (2, 60)]
+        schema = ["id", "age"]
+        df = self.spark.createDataFrame(data, schema)
+        result = self.validate_range(df, "age", max_val=65)
+        self.assertEqual(len(result), 1)  # One value above maximum expected
+
+    def test_date_format(self):
+        data = [(1, "2023-01-01"), (2, "01-01-2023")]
+        schema = ["id", "join_date"]
+        df = self.spark.createDataFrame(data, schema)
+        result = self.validate_date_format(df, "join_date", "yyyy-MM-dd")
+        self.assertEqual(len(result), 1)  # One invalid date format expected
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.spark.stop()
+
