@@ -79,3 +79,22 @@ df = spark.createDataFrame(data, schema)
 # Show the DataFrame
 df.show(truncate=False)
 
+
+#testcase 
+
+Test Column Validation (validate_column):
+
+Non-null check: Test with a column that has null values and ensure the validation catches them.
+Data type check: Test if the column type (e.g., integer, string) matches the specified type in the config.
+Unique values check: Test with columns that have duplicate values and ensure the validation flags them.
+Range check: Test with values outside the specified minimum or maximum and check if the validation catches them.
+Length check: For string columns, check if values that exceed the max length are flagged.
+Date format check: Test if the column follows the correct date format, if specified in the config.
+Test Overall Validation (validate):
+
+Ensure the validation runs for all columns in the config and returns the correct rows where validation fails.
+Edge Cases:
+
+Missing column: Check what happens if a column in the config is missing from the DataFrame.
+Invalid config: Test with an incorrect or incomplete config and ensure it doesn't break the code.
+Empty DataFrame: Check how the validator behaves with an empty DataFrame.
