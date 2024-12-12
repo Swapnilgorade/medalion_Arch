@@ -1,0 +1,55 @@
+### Test Cases for DV
+
+#### Positive Test Cases
+1. **Test Name:** Validate Non-Null Name Column
+   - **Input:** DataFrame with no null values in the `name` column.
+   - **Expected Output:** No validation errors.
+
+2. **Test Name:** Validate Unique Name Column
+   - **Input:** DataFrame with unique values in the `name` column.
+   - **Expected Output:** No validation errors.
+
+3. **Test Name:** Validate Age Range
+   - **Input:** DataFrame with `age` values between 18 and 65.
+   - **Expected Output:** No validation errors.
+
+4. **Test Name:** Validate Salary Range
+   - **Input:** DataFrame with `salary` values between 30,000 and 100,000.
+   - **Expected Output:** No validation errors.
+
+5. **Test Name:** Validate Date Format
+   - **Input:** DataFrame with valid dates in `yyyy-MM-dd` format in the `join_date` column.
+   - **Expected Output:** No validation errors.
+
+#### Negative Test Cases
+1. **Test Name:** Validate Null Name Column
+   - **Input:** DataFrame with null values in the `name` column.
+   - **Expected Output:** Validation error indicating null values in the `name` column.
+
+2. **Test Name:** Validate Duplicate Name Column
+   - **Input:** DataFrame with duplicate values in the `name` column.
+   - **Expected Output:** Validation error indicating duplicate values in the `name` column.
+
+3. **Test Name:** Validate Age Below Minimum
+   - **Input:** DataFrame with `age` values below 18.
+   - **Expected Output:** Validation error indicating age values below the minimum threshold.
+
+4. **Test Name:** Validate Age Above Maximum
+   - **Input:** DataFrame with `age` values above 65.
+   - **Expected Output:** Validation error indicating age values above the maximum threshold.
+
+5. **Test Name:** Validate Salary Below Minimum
+   - **Input:** DataFrame with `salary` values below 30,000.
+   - **Expected Output:** Validation error indicating salary values below the minimum threshold.
+
+6. **Test Name:** Validate Salary Above Maximum
+   - **Input:** DataFrame with `salary` values above 100,000.
+   - **Expected Output:** Validation error indicating salary values above the maximum threshold.
+
+7. **Test Name:** Validate Invalid Date Format
+   - **Input:** DataFrame with invalid dates in the `join_date` column (e.g., `01-01-2023`).
+   - **Expected Output:** Validation error indicating invalid date format in the `join_date` column.
+
+8. **Test Name:** Validate String Length
+   - **Input:** DataFrame with `name` column values exceeding the maximum length (e.g., 11 characters for a max length of 10).
+   - **Expected Output:** Validation error indicating string length violation in the `name` column.
