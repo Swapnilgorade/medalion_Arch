@@ -1,0 +1,146 @@
+from pyspark.sql import *
+from pyspark.sql.functions import *
+import json
+
+class DataValidator:
+    def __init__(self, df, config_file):
+        """
+        Initialize the DataValidator with a DataFrame and a config file.
+        """
+        self.df = df
+        with open(config_file, 'r') as file:
+            self.config = json.load(file)['validations']
+
+    def validate_column(self, column, rules):
+        """
+        Validate a single column based on the rules in the config and return ids where validation fails.
+        """
+        violated_ids = []  # To store ids where validation fails
+
+        if column not in self.df.columns:
+            print(f"Error: Column '{column}' is missing from the DataFrame.")
+            return violated_ids
+
+        # Check for non-null values
+        if rules.get("constraints", {}).get("non_null", False):
+            null_rows = self.df.filter(self.df[column].isNull()).select("id").collect()
+            if null_rows:
+                null_ids = [row["id"] for row in null_rows]
+                print(f"Validation Failed: Column '{column}' has null value(s) in rows with ids: {null_ids}")
+                violated_ids.extend(null_ids)
+
+        # Check data type
+        expected_type = rules.get("type")
+        if expected_type:
+            if expected_type == "integer" and not self.df.schema[column].dataType.simpleString() == "int":
+                print(f"Validation Failed: Column '{column}' is not of type 'integer'.")
+                violated_ids.extend(self.df.select("id").collect())
+            elif expected_type == "float" and not self.df.schema[column].dataType.simpleString() == "float":
+                print(f"Validation Failed: Column '{column}' is not of type 'float'.")
+                violated_ids.extend(self.df.select("id").collect())
+            elif expected_type == "string" and not self.df.schema[column].dataType.simpleString() == "string":
+                print(f"Validation Failed: Column '{column}' is not of type 'string'.")
+                violated_ids.extend(self.df.select("id").collect())
+
+        # Check unique values
+        if rules.get("constraints", {}).get("unique", False):
+            duplicate_rows = self.df.groupBy(column).count().filter("count > 1").select(column).collect()
+            if duplicate_rows:
+                duplicate_ids = [row[column] for row in duplicate_rows]
+                print(f"Validation Failed: Column '{column}' has duplicate values in rows with ids: {duplicate_ids}")
+                violated_ids.extend(duplicate_ids)
+
+        # Check range (min, max)
+        min_value = rules.get("constraints", {}).get("min")
+        if min_value is not None:
+            min_violations = self.df.filter(self.df[column] < min_value).select("id").collect()
+            if min_violations:
+                min_ids = [row["id"] for row in min_violations]
+                print(f"Validation Failed: Column '{column}' has {len(min_ids)} value(s) below minimum {min_value} in rows with ids: {min_ids}")
+                violated_ids.extend(min_ids)
+
+        max_value = rules.get("constraints", {}).get("max")
+        if max_value is not None:
+            max_violations = self.df.filter(self.df[column] > max_value).select("id").collect()
+            if max_violations:
+                max_ids = [row["id"] for row in max_violations]
+                print(f"Validation Failed: Column '{column}' has {len(max_ids)} value(s) above maximum {max_value} in rows with ids: {max_ids}")
+                violated_ids.extend(max_ids)
+
+        # Check max length for string
+        if rules.get("constraints", {}).get("max_length") and expected_type == "string":
+            max_length = rules["constraints"]["max_length"]
+            length_violations = self.df.filter(self.df[column].rlike(f".{{{max_length+1},}}")).select("id").collect()
+            if length_violations:
+                length_ids = [row["id"] for row in length_violations]
+                print(f"Validation Failed: Column '{column}' has values exceeding length {max_length} in rows with ids: {length_ids}")
+                violated_ids.extend(length_ids)
+
+        # Validate date format if specified
+        date_format = rules.get("constraints", {}).get("date_format")
+        if date_format:
+            column_type = self.df.schema[column].dataType.simpleString()
+            if column_type == "string":
+                # Try converting the column to date format
+                invalid_dates = self.df.filter(to_date(self.df[column], date_format).isNull()).select("id").collect()
+                if invalid_dates:
+                    invalid_ids = [row["id"] for row in invalid_dates]
+                    print(f"Validation Failed: Column '{column}' has invalid date format(s) in rows with ids: {invalid_ids}")
+                    violated_ids.extend(invalid_ids)
+            elif column_type == "date":
+                # Ensure all values are valid dates (no nulls or invalid entries)
+                invalid_dates = self.df.filter(self.df[column].isNull()).select("id").collect()
+                if invalid_dates:
+                    invalid_ids = [row["id"] for row in invalid_dates]
+                    print(f"Validation Failed: Column '{column}' has invalid date value(s) in rows with ids: {invalid_ids}")
+                    violated_ids.extend(invalid_ids)
+
+        return violated_ids
+
+    def validate(self):
+        """
+        Validate all columns based on the config file and return a list of ids where validation fails.
+        """
+        all_violated_ids = []
+        for column, rules in self.config.items():
+            violated_ids = self.validate_column(column, rules)
+            all_violated_ids.extend(violated_ids)
+        return list(set(all_violated_ids))  # Remove duplicates
+
+# Example Usage
+
+# Example configuration for validations
+config = {
+    "validations": {
+        "date_column": {
+            "constraints": {
+                "date_format": "yyyy-MM-dd",
+                "type": "date"
+            }
+        },
+        "age": {
+            "constraints": {
+                "min": 18,
+                "max": 100
+            },
+            "type": "integer"
+        }
+    }
+}
+
+# Assuming you already have a DataFrame `df` with relevant columns.
+# For example, df = spark.read.csv("your_file.csv", header=True, inferSchema=True)
+
+# Create the DataValidator instance
+validator = DataValidator(df, config)
+
+# Run validation and get the ids where validation failed
+violated_ids = validator.validate()
+
+# Show the result
+if violated_ids:
+    print(f"Validation failed for rows with ids: {violated_ids}")
+else:
+    print("All validations passed successfully.")
+
+
