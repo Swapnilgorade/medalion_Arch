@@ -1,0 +1,119 @@
+databricks project:
+
+tools used :
+	
+	azure databricks : for heavi liffting trasnformation.
+	azure data factory : for scheuling and monitoring purpose.
+	azure logic apps: for monitoring the result of the piplines.
+	azure adls : for storage purpose.
+	azure key_vault_services :  for store the scretes. 
+
+
+-----------------------------------------------------------------------------------------
+
+adlskey = dbutils.secrete.get(scope = 'key_vault_name', key= "storageAcocount" )
+
+-----------------------------------------------------------------------------------------
+storageAccount_name = ''
+bolbContainer_name ='raw'
+mountPoint= '/mnt/raw/'
+
+
+if not any(mount.mountPoint == mountPoint for mount in dbutils.fs.mount()):
+	
+	try:
+		dbutils.fs.mount(
+		
+			source = "wasbs://paratise@swapnilaccountname.blob.core.windows.net/",
+            mount_point = "/mnt/project",
+			extra_configs = {'fs.azure.account.key.swapnilaccountname.blob.core.windows.net':'PwiqlUIXVU1o/y3i2rvvUXGFrMzemoVKhWLnFyj8wZjs8r1VWJB4Ckd5Ou6CQd9hIaII2JbLRe9k+AStg92uDw=='}
+			
+			)
+        print('mount sucessful')
+		
+	except Exception as e:
+		print('mount exception',e)
+		
+-----------------------------------------------------------------------------------------
+# creating a bronze layer
+
+storageAccount_name = ''
+bolbContainer_name ='bronze'
+mountPoint= '/mnt/bronze/'
+
+
+if not any(mount.mountPoint == mountPoint for mount in dbutils.fs.mount()):
+	
+	try:
+		dbutils.fs.mount(
+		
+			source = "wasbs://{}@{}.bolb.core.windows.net",format(bolbContainer_name,storageAccount_name)"
+			mount = mountPoint
+			extra_configs = {'fs.azure.account.key.'+ storageAccount_name +'.bolb.core.windows.net': adlskey}
+			
+			)
+        print('mount sucessful')
+		
+	except Exception as e:
+		print('mount exception',e)
+		
+
+-----------------------------------------------------------------------------------------
+# creating a silver layer
+
+storageAccount_name = ''
+bolbContainer_name ='silver'
+mountPoint= '/mnt/silver/'
+
+
+if not any(mount.mountPoint == mountPoint for mount in dbutils.fs.mount()):
+	
+	try:
+		dbutils.fs.mount(
+		
+			source = "wasbs://{}@{}.bolb.core.windows.net",format(bolbContainer_name,storageAccount_name)"
+			mount = mountPoint
+			extra_configs = {'fs.azure.account.key.'+ storageAccount_name +'.bolb.core.windows.net': adlskey}
+			
+			)
+        print('mount sucessful')
+		
+	except Exception as e:
+		print('mount exception',e)
+		
+-----------------------------------------------------------------------------------------
+# creating a gold layer
+
+storageAccount_name = ''
+bolbContainer_name ='gold'
+mountPoint= '/mnt/gold/'
+
+
+if not any(mount.mountPoint == mountPoint for mount in dbutils.fs.mount()):
+	
+	try:
+		dbutils.fs.mount(
+		
+			source = "wasbs://{0}@{1}.bolb.core.windows.net",format(bolbContainer_name,storageAccount_name)"
+			mount = mountPoint
+			extra_configs = {'fs.azure.account.key.'+ storageAccount_name +'.bolb.core.windows.net': adlskey}
+			
+			)
+        print('mount sucessful')
+		
+	except Exception as e:
+		print('mount exception',e)
+		
+-----------------------------------------------------------------------------------------
+
+%fs ls mnt/raw/
+
+
+
+dbutils.fs.mount(
+					source = ,
+					mount_point = ,
+					extra_configs = 'fs.azure.account.key.storage_AccountName.bolb.core.windows.net':dbutils.secrets.get(scope=scope_name,keys= password)
+
+		
+
