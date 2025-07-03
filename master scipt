@@ -1,0 +1,35 @@
+COMPLEX JSON DATA HANDLING:
+---------------------------
+
+def child_struct(nested_df):
+    #creating a python list of store metadata
+    list_schema = [((),nested_df)]
+    #Creating a empty list 
+    flat_columns=[]
+
+    while len(list_schema)>0:
+        parent,df = list_schema.pop()
+        
+        flat_cols = [ col(".".join(parent + (i[0],))).alias("_".join(parent + (i[0],)))  for i in df.dtypes if i[1][:6] != "struct" ]
+
+        struct_type = [i[0] for i in df.dtypes if i[1][:6]=="struct" ]
+
+        flat_columns.extend(flat_cols)
+
+        for j in struct_type:
+            #print(j)
+            newdf = df.select(j + ".*")
+            list_schema.append((parent + (j,),newdf))
+    return nested_df.select(flat_columns)
+
+
+def master_array(df):
+    array_col = [i[0] for i in df.dtypes if i[1][:5] =="array"]
+    while len(array_col)>0:
+        for i in array_col:
+            df=df.withColumn(i,explode_outer(i))
+        df=child_struct(df)
+        array_col = [i[0] for i in df.dtypes if i[1][:5] =="array"]
+    return df
+
+----------------------------------------------------------------------------------------------------------------------------------------
