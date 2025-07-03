@@ -1,0 +1,45 @@
+from pyspark.sql.functions import (
+    monotonically_increasing_id, when, col, trim, collect_list, concat_ws,
+    sum as spark_sum, first
+)
+from pyspark.sql.window import Window
+
+# Step 1: Read the Excel file
+df = spark.read.format("com.crealytics.spark.excel") \
+    .option("header", "true") \
+    .option("inferSchema", "true") \
+    .load("/path/to/your_excel_file.xlsx")  # ✅ Update this path
+
+# Step 2: Add row index
+df = df.withColumn("row_id", monotonically_increasing_id())
+
+# Step 3: Mark blank rows
+df = df.withColumn("is_blank", when(col("QueryText").isNull() | (col("QueryText") == ""), 1).otherwise(0))
+
+# Step 4: Generate query_group using cumulative sum
+window_spec = Window.orderBy("row_id")
+df = df.withColumn("query_group", spark_sum("is_blank").over(window_spec))
+
+# Step 5: Filter out blank rows
+df_filtered = df.filter(~col("is_blank").cast("boolean"))
+
+# Step 6: Group by query_group and assemble the query and metadata
+df_final = df_filtered.groupBy("query_group").agg(
+    concat_ws(" ", collect_list(trim(col("QueryText")))).alias("FinalQuery"),
+    first("SourceSchema", ignorenulls=True).alias("SourceSchema"),
+    first("SourceTableName", ignorenulls=True).alias("SourceTableName")
+)
+
+# Step 7: Show final results
+df_final.select("SourceSchema", "SourceTableName", "FinalQuery").show(truncate=False)
+
+# Optional: Convert to Python dicts
+query_list = df_final.select("SourceSchema", "SourceTableName", "FinalQuery").collect()
+result = [
+    {
+        "SourceSchema": row["SourceSchema"],
+        "SourceTableName": row["SourceTableName"],
+        "Query": row["FinalQuery"]
+    }
+    for row in query_list
+]
