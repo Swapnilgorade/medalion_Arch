@@ -1,0 +1,18 @@
+SELECT 
+    'SELECT ' || 
+    LISTAGG(
+        CASE 
+            WHEN DATA_TYPE IN ('NUMBER', 'DECIMAL', 'NUMERIC') THEN 
+                'CAST("' || COLUMN_NAME || '" AS NUMBER(18,2)) AS "' || COLUMN_NAME || '"'
+            ELSE 
+                '"' || COLUMN_NAME || '"'
+        END, ', '
+    ) WITHIN GROUP (ORDER BY COLUMN_ID) || 
+    ' FROM "' || OWNER || '"."' || TABLE_NAME || '"' AS GENERATED_SQL,
+    
+    OWNER AS SCHEMA_NAME,
+    TABLE_NAME
+FROM ALL_TAB_COLUMNS
+WHERE TABLE_NAME = 'YOUR_TABLE_NAME'  -- 🔁 Or remove to run for all tables
+  AND OWNER = 'YOUR_SCHEMA_NAME'
+GROUP BY TABLE_NAME, OWNER;
