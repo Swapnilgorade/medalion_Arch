@@ -1,0 +1,108 @@
+{
+  "type": "AdaptiveCard",
+  "version": "1.4",
+  "body": [
+    {
+      "type": "TextBlock",
+      "text": "🚨 Pipeline Failure Alert",
+      "weight": "Bolder",
+      "size": "Large",
+      "color": "Attention"
+    },
+    {
+      "type": "FactSet",
+      "facts": [
+        { "title": "Pipeline", "value": "@{triggerBody()?['pipeline']}" },
+        { "title": "Run ID", "value": "@{triggerBody()?['run_id']}" },
+        { "title": "Error", "value": "@{triggerBody()?['error']}" }
+      ]
+    },
+    {
+      "type": "Input.ChoiceSet",
+      "id": "priority",
+      "style": "expanded",
+      "choices": [
+        { "title": "High", "value": "High" },
+        { "title": "Medium", "value": "Medium" },
+        { "title": "Low", "value": "Low" }
+      ]
+    },
+    {
+      "type": "Input.Text",
+      "id": "description",
+      "placeholder": "Enter issue description",
+      "isMultiline": true
+    },
+    {
+      "type": "Input.Text",
+      "id": "assigned_to",
+      "placeholder": "Enter email of responsible user"
+    }
+  ],
+  "actions": [
+    {
+      "type": "Action.Submit",
+      "title": "🎫 Create Ticket"
+    }
+  ]
+}
+
+
+pyhton code :
+
+import requests
+import json
+
+FLOW_URL = "PASTE_YOUR_POWER_AUTOMATE_HTTP_URL"
+
+def trigger_teams_alert():
+
+    payload = {
+        "pipeline": "Customer_Load",
+        "run_id": "RUN_1001",
+        "error": "Null values found in email column"
+    }
+
+    response = requests.post(FLOW_URL, json=payload)
+
+    print("Flow Triggered:", response.status_code)
+
+trigger_teams_alert()
+
+CREATE TABLE ticket_table (
+    ticket_id INT IDENTITY(1,1),
+    pipeline_name VARCHAR(100),
+    run_id VARCHAR(50),
+    error_message VARCHAR(MAX),
+    priority VARCHAR(20),
+    description VARCHAR(MAX),
+    assigned_to VARCHAR(100),
+    created_by VARCHAR(100),
+    created_date DATETIME DEFAULT GETDATE()
+);
+
+
+Email Body:
+
+Hi,
+
+A new ticket has been created from Teams.
+
+Details:
+
+Pipeline: @{triggerBody()['pipeline']}
+
+Run ID: @{triggerBody()['run_id']}
+
+Error: @{triggerBody()['error']}
+
+Priority: @{outputs('Post_adaptive_card')?['priority']}
+
+Description: @{outputs('Post_adaptive_card')?['description']}
+
+Assigned To: @{outputs('Post_adaptive_card')?['assigned_to']}
+
+Please take action.
+
+Thanks,
+Automation System
