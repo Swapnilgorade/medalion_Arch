@@ -1,0 +1,85 @@
+import requests
+import json
+
+# 🔷 CONFIGURATION
+
+# Generate UUID
+unique_id = uuid.uuid4()
+
+print(unique_id)# 🔁 replace with your actual project key
+
+# 🔷 FUNCTION TO CREATE TICKET
+def create_jira_ticket(summary, description, issue_type="Bug", priority=None):
+
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    }
+
+    # 🔷 Base payload
+    payload = {
+        "fields": {
+            "project": {
+                "key": PROJECT_KEY
+            },
+            "summary": summary,
+            "description": description,
+            "issuetype": {
+                "name": issue_type
+            }
+        }
+    }
+
+    # 🔷 Optional: Add priority if needed
+    if priority:
+        payload["fields"]["priority"] = {"name": priority}
+
+    try:
+        response = requests.post(
+            JIRA_URL,
+            headers=headers,
+            json=payload,   # ✅ important
+            auth=(EMAIL, API_TOKEN)
+        )
+
+        print("Status Code:", response.status_code)
+
+        if response.status_code == 201:
+            data = response.json()
+            print("✅ Ticket Created Successfully")
+            print("Ticket ID:", data.get("id"))
+            print("Ticket Key:", data.get("key"))
+            print("URL:", data.get("self"))
+            return data
+
+        else:
+            print("❌ Failed to create ticket")
+            print("Response:", response.text)
+            return None
+
+    except Exception as e:
+        print("❌ Exception occurred:", str(e))
+        return None
+
+
+# 🔷 MAIN EXECUTION (Sample Test Data)
+if __name__ == "__main__":
+
+    summary = " Pipeline Failure - Customer Load"
+    description = f"""
+h3. 🚨 Pipeline Failure Details
+
+|| Field || Value ||
+| Ticket ID | {unique_id} |
+| Pipeline Name | Customer_Load |
+| Run ID | RUN_1001 |
+| Error | Null values found in email column |
+| Trigger | Python Automation |
+"""
+
+    create_jira_ticket(
+        summary=summary,
+        description=description,
+        issue_type="Bug",   # Try "Task" first
+        priority="High"      # Optional
+    )
