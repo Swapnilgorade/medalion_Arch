@@ -83,3 +83,6 @@ h3. 🚨 Pipeline Failure Details
         issue_type="Bug",   # Try "Task" first
         priority="High"      # Optional
     )
+
+
+API_TOKEN =  "ATATT3xFfGF0bINu38Bgra1wUKmYmXyl1DKQbLNc1QmHmgw3pkhlpBaVknGijRcknoYZr4Vy1It9nK8p06f4imYJU59OcAPVvva5BlP3YNa0XoACvjyd5nakGiM3EvxstezZ_776nZHR5KKEp6WpRwSIJ8cWhIndq5CoBvjGJNkv0G0lJycViqOZA0=B28829CB"   # 🔁 replace with your token
