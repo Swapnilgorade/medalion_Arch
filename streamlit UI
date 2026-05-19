@@ -1,0 +1,90 @@
+import streamlit as st
+
+# Page config
+st.set_page_config(page_title="EPAM UI", layout="centered")
+
+# Custom CSS for styling
+st.markdown("""
+    <style>
+    .main {
+        background: linear-gradient(135deg, #0a192f, #020c1b);
+        color: white;
+    }
+
+    .title {
+        text-align: center;
+        font-size: 60px;
+        font-weight: bold;
+        color: #cbd5f5;
+    }
+
+    .subtitle {
+        text-align: center;
+        font-size: 28px;
+        margin-top: -10px;
+    }
+
+    .tag {
+        text-align: center;
+        font-size: 12px;
+        padding: 6px 12px;
+        border-radius: 20px;
+        display: inline-block;
+        margin-bottom: 20px;
+        background-color: rgba(255,255,255,0.1);
+    }
+
+    .card {
+        background: rgba(255,255,255,0.05);
+        padding: 20px;
+        border-radius: 12px;
+        text-align: center;
+        margin: 10px;
+        transition: 0.3s;
+        cursor: pointer;
+    }
+
+    .card:hover {
+        background: rgba(255,255,255,0.15);
+        transform: scale(1.05);
+    }
+
+    .card-text {
+        font-size: 16px;
+        font-weight: 500;
+    }
+
+    .center {
+        text-align: center;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+
+# Top section
+st.markdown('<div class="center"><span class="tag">INTERVIEW PREP • PYTHON</span></div>', unsafe_allow_html=True)
+st.markdown('<div class="title">EPAM</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">SYSTEMS</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle"><b>Python Interview Questions</b></div>', unsafe_allow_html=True)
+
+st.write("")
+
+# Cards layout
+col1, col2 = st.columns(2)
+
+with col1:
+    if st.button("💻 Software Developer"):
+        st.write("You clicked Software Developer")
+
+    if st.button("🤖 GenAI Engineer"):
+        st.write("You clicked GenAI Engineer")
+
+with col2:
+    if st.button("📊 Data Scientist"):
+        st.write("You clicked Data Scientist")
+
+    if st.button("🧠 AI / ML Engineer"):
+        st.write("You clicked AI/ML Engineer")
+
+# Footer
+st.markdown("<br><br><div class='center'>Swipe for Questions →</div>", unsafe_allow_html=True)
