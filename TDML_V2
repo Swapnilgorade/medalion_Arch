@@ -11,7 +11,7 @@ from openpyxl.utils import get_column_letter
 # ============================================================
 
 input_file = "model.tmdl"
-output_file = "TMDL_Documentation.xlsx"
+output_file = "TMDL_Documentation123.xlsx"
 
 
 # ============================================================
@@ -54,6 +54,7 @@ def unique_list(values):
 
 
 def safe_sheet_name(name):
+
     """
     Convert table name into a valid Excel sheet name.
     """
@@ -74,36 +75,9 @@ def safe_sheet_name(name):
     return name[:31]
 
 
-def extract_object_name(
-    quoted_single,
-    quoted_double,
-    unquoted_name
-):
-    """
-    Return the actual object name regardless of
-    whether it is quoted or unquoted.
-    """
-
-    if quoted_single:
-        return quoted_single.strip()
-
-    if quoted_double:
-        return quoted_double.strip()
-
-    if unquoted_name:
-        return unquoted_name.strip()
-
-    return ""
-
-
 # ============================================================
 # READ TMDL
 # ============================================================
-
-print()
-print("================================================")
-print("READING TMDL")
-print("================================================")
 
 with open(
     input_file,
@@ -112,12 +86,6 @@ with open(
 ) as f:
 
     text = f.read()
-
-
-print(
-    "TMDL characters:",
-    len(text)
-)
 
 
 # ============================================================
@@ -156,6 +124,7 @@ for i, table_match in enumerate(
 
     table_start = table_match.end()
 
+
     if i + 1 < len(table_matches):
 
         table_end = (
@@ -166,39 +135,19 @@ for i, table_match in enumerate(
 
         table_end = len(text)
 
+
     table_block = text[
         table_start:table_end
     ]
 
 
-    # ========================================================
-    # MEASURE PATTERN
-    #
-    # Supports:
-    #
-    # measure 'Total Sales' =
-    # measure "Total Sales" =
-    # measure TotalSales =
-    # measure Total Sales =
-    # ========================================================
-
     measure_pattern = re.compile(
         r"""
         (?ms)
         ^\s*measure\s+
-
-        (?:
-            '([^']+)'
-            |
-            "([^"]+)"
-            |
-            ([^\r\n=]+?)
-        )
-
+        ['"]([^'"]+)['"]
         \s*=\s*
-
         (.*?)
-
         (?=
             ^\s*measure\s+
             |
@@ -218,21 +167,7 @@ for i, table_match in enumerate(
     )
 
 
-    for (
-        quoted_single,
-        quoted_double,
-        unquoted_name,
-        measure_block
-    ) in measures:
-
-        measure_name = extract_object_name(
-            quoted_single,
-            quoted_double,
-            unquoted_name
-        )
-
-        if not measure_name:
-            continue
+    for measure_name, measure_block in measures:
 
         all_measures.append({
 
@@ -240,8 +175,9 @@ for i, table_match in enumerate(
                 table_name,
 
             "MeasureName":
-                measure_name
-
+                clean_name(
+                    measure_name
+                )
         })
 
 
@@ -256,12 +192,6 @@ for item in all_measures:
     measure_to_table[
         item["MeasureName"]
     ] = item["TableName"]
-
-
-print(
-    "Measures found:",
-    len(all_measures)
-)
 
 
 # ============================================================
@@ -280,11 +210,8 @@ for i, table_match in enumerate(
     )
 
 
-    # ========================================================
-    # TABLE BLOCK
-    # ========================================================
-
     table_start = table_match.end()
+
 
     if i + 1 < len(table_matches):
 
@@ -303,34 +230,40 @@ for i, table_match in enumerate(
 
 
     # ========================================================
-    # TABLE COUNTERS
-    # ========================================================
-
-    table_measure_count = 0
-    table_column_count = 0
-
-
-    # ========================================================
     # MEASURES
     # ========================================================
 
+    # measure_pattern = re.compile(
+    #     r"""
+    #     (?ms)
+    #     ^\s*measure\s+
+    #     ['"]([^'"]+)['"]
+    #     \s*=\s*
+    #     (.*?)
+    #     (?=
+    #         ^\s*measure\s+
+    #         |
+    #         ^\s*column\s+
+    #         |
+    #         ^\s*partition\s+
+    #         |
+    #         \Z
+    #     )
+    #     """,
+    #     re.VERBOSE
+    # )
+    
     measure_pattern = re.compile(
         r"""
         (?ms)
         ^\s*measure\s+
-
         (?:
-            '([^']+)'
+            ['"]([^'"]+)['"]     # Quoted measure name
             |
-            "([^"]+)"
-            |
-            ([^\r\n=]+?)
+            ([^\s=]+(?:\s+[^=]+?)?)  # Unquoted measure name
         )
-
         \s*=\s*
-
         (.*?)
-
         (?=
             ^\s*measure\s+
             |
@@ -342,7 +275,7 @@ for i, table_match in enumerate(
         )
         """,
         re.VERBOSE
-    )
+)
 
 
     measures = measure_pattern.findall(
@@ -350,25 +283,29 @@ for i, table_match in enumerate(
     )
 
 
-    # ========================================================
-    # PROCESS MEASURES
-    # ========================================================
+    # for measure_name, measure_block in measures:
 
-    for (
-        quoted_single,
-        quoted_double,
-        unquoted_name,
-        measure_block
-    ) in measures:
+    #     measure_name = clean_name(
+    #         measure_name
+    #     )
+    for quoted_name, unquoted_name, measure_block in measures:
+    
+        measure_name = quoted_name or unquoted_name
 
-        measure_name = extract_object_name(
-            quoted_single,
-            quoted_double,
-            unquoted_name
+        measure_name = clean_name(
+            measure_name
         )
-
-        if not measure_name:
-            continue
+    
+    # for quoted_measure_name, unquoted_measure_name, measure_block in measures:
+    
+    #     if quoted_measure_name:
+    #         column_name = clean_name(
+    #             quoted_measure_name
+    #         )
+    #     else:
+    #         column_name = clean_name(
+    #             unquoted_measure_name
+    #         )
 
 
         # ----------------------------------------------------
@@ -400,6 +337,7 @@ for i, table_match in enumerate(
 
             dependency = dependency.strip()
 
+
             if (
                 dependency in measure_to_table
                 and dependency != measure_name
@@ -430,6 +368,7 @@ for i, table_match in enumerate(
                 )
             )
 
+
             if dependency_table:
 
                 measure_dependency_tables.append(
@@ -451,8 +390,6 @@ for i, table_match in enumerate(
             (?:
                 '([^']+)'
                 |
-                "([^"]+)"
-                |
                 ([A-Za-z_][A-Za-z0-9_ ]*)
             )
             \s*
@@ -470,20 +407,16 @@ for i, table_match in enumerate(
 
 
         for (
-            quoted_single_table,
-            quoted_double_table,
+            quoted_table,
             unquoted_table,
             column
         ) in column_matches:
 
+
             dependency_table = (
-                quoted_single_table
-                if quoted_single_table
-                else (
-                    quoted_double_table
-                    if quoted_double_table
-                    else unquoted_table
-                )
+                quoted_table
+                if quoted_table
+                else unquoted_table
             )
 
 
@@ -502,6 +435,7 @@ for i, table_match in enumerate(
                 table_dependencies.append(
                     dependency_table
                 )
+
 
                 column_dependencies.append(
                     f"{dependency_table}[{column}]"
@@ -564,31 +498,45 @@ for i, table_match in enumerate(
         })
 
 
-        table_measure_count += 1
-
-
     # ========================================================
     # COLUMNS
     # ========================================================
+
+    # column_pattern = re.compile(
+    #     r"""
+    #     (?ms)
+    #     ^\s*column\s+
+    #     (?:
+    #         ['"]([^'"]+)['"]
+    #         |
+    #         ([^\r\n]+?)
+    #     )
+    #     \s*
+    #     (.*?)
+    #     (?=
+    #         ^\s*column\s+
+    #         |
+    #         ^\s*measure\s+
+    #         |
+    #         ^\s*partition\s+
+    #         |
+    #         \Z
+    #     )
+    #     """,
+    #     re.VERBOSE
+    # )
 
     column_pattern = re.compile(
         r"""
         (?ms)
         ^\s*column\s+
-
         (?:
-            '([^']+)'
+            ['"]([^'"]+)['"]
             |
-            "([^"]+)"
-            |
-            ([^\r\n=]+?)
+            ([^\r\n]+?)(?=\s+(?:dataType|sourceColumn|formatString|summarizeBy|isHidden|sortByColumn)\b)
         )
-
         \s*
-        (?:=\s*)?
-
         (.*?)
-
         (?=
             ^\s*column\s+
             |
@@ -602,43 +550,27 @@ for i, table_match in enumerate(
         re.VERBOSE
     )
 
-
     columns = column_pattern.findall(
         table_block
     )
 
 
-    # ========================================================
-    # PROCESS COLUMNS
-    # ========================================================
+    # for column_name, column_block in columns:
 
-    for (
-        quoted_single,
-        quoted_double,
-        unquoted_name,
-        column_block
-    ) in columns:
-
-        column_name = extract_object_name(
-            quoted_single,
-            quoted_double,
-            unquoted_name
-        )
-
-
-        if not column_name:
-            continue
-
-
-        # ----------------------------------------------------
-        # CLEAN COLUMN NAME
-        # ----------------------------------------------------
-
-        column_name = re.sub(
-            r"\s+$",
-            "",
-            column_name
-        )
+    #     column_name = clean_name(
+    #         column_name
+    #     )
+    
+    for quoted_column_name, unquoted_column_name, column_block in columns:
+        
+        if quoted_column_name:
+            column_name = clean_name(
+                quoted_column_name
+            )
+        else:
+            column_name = clean_name(
+                unquoted_column_name
+            )
 
 
         # ----------------------------------------------------
@@ -646,7 +578,7 @@ for i, table_match in enumerate(
         # ----------------------------------------------------
 
         datatype_match = re.search(
-            r"(?m)^\s*dataType\s*:\s*([^\r\n]+)",
+            r"(?m)^\s*dataType:\s*([^\r\n]+)",
             column_block
         )
 
@@ -663,7 +595,7 @@ for i, table_match in enumerate(
         # ----------------------------------------------------
 
         source_column_match = re.search(
-            r'(?m)^\s*sourceColumn\s*:\s*"([^"]*)"',
+            r'(?m)^\s*sourceColumn:\s*"([^"]*)"',
             column_block
         )
 
@@ -713,20 +645,6 @@ for i, table_match in enumerate(
         })
 
 
-        table_column_count += 1
-
-
-    # ========================================================
-    # VALIDATION OUTPUT
-    # ========================================================
-
-    print(
-        f"Table: {table_name} | "
-        f"Measures: {table_measure_count} | "
-        f"Columns: {table_column_count}"
-    )
-
-
 # ============================================================
 # DATAFRAME
 # ============================================================
@@ -734,17 +652,6 @@ for i, table_match in enumerate(
 df = pd.DataFrame(
     results
 )
-
-
-# ============================================================
-# ENSURE ALL REQUIRED COLUMNS EXIST
-# ============================================================
-
-for column in required_columns:
-
-    if column not in df.columns:
-
-        df[column] = ""
 
 
 df = df[
@@ -758,10 +665,7 @@ df = df[
 
 df = df[
     df["ObjectType"].isin(
-        [
-            "Measure",
-            "Column"
-        ]
+        ["Measure", "Column"]
     )
 ].copy()
 
@@ -771,9 +675,7 @@ df = df[
 # ============================================================
 
 object_order = {
-
     "Measure": 1,
-
     "Column": 2
 }
 
@@ -795,9 +697,7 @@ df = df.sort_values(
 
 
 df = df.drop(
-    columns=[
-        "_Order"
-    ]
+    columns=["_Order"]
 )
 
 
@@ -810,10 +710,9 @@ with pd.ExcelWriter(
     engine="openpyxl"
 ) as writer:
 
-
-    # ========================================================
+    # --------------------------------------------------------
     # CREATE ONE SHEET PER TABLE
-    # ========================================================
+    # --------------------------------------------------------
 
     for table_name in sorted(
         df["TableName"].unique()
@@ -824,9 +723,9 @@ with pd.ExcelWriter(
         ].copy()
 
 
-        # ====================================================
+        # ----------------------------------------------------
         # TABLE README
-        # ====================================================
+        # ----------------------------------------------------
 
         table_measure_df = table_df[
             table_df["ObjectType"]
@@ -850,9 +749,9 @@ with pd.ExcelWriter(
         )
 
 
-        # ====================================================
+        # ----------------------------------------------------
         # README DATA
-        # ====================================================
+        # ----------------------------------------------------
 
         readme_rows = []
 
@@ -885,9 +784,9 @@ with pd.ExcelWriter(
         ])
 
 
-        # ====================================================
+        # ----------------------------------------------------
         # MEASURES
-        # ====================================================
+        # ----------------------------------------------------
 
         readme_rows.append([
             "",
@@ -923,40 +822,6 @@ with pd.ExcelWriter(
 
 
             if row[
-                "MeasureDependencyTable"
-            ]:
-
-                readme_rows.append([
-
-                    "",
-
-                    "Measure Dependency Table",
-
-                    row[
-                        "MeasureDependencyTable"
-                    ]
-
-                ])
-
-
-            if row[
-                "TableDependencies"
-            ]:
-
-                readme_rows.append([
-
-                    "",
-
-                    "Table Dependencies",
-
-                    row[
-                        "TableDependencies"
-                    ]
-
-                ])
-
-
-            if row[
                 "ColumnDependencies"
             ]:
 
@@ -973,9 +838,9 @@ with pd.ExcelWriter(
                 ])
 
 
-        # ====================================================
+        # ----------------------------------------------------
         # COLUMNS
-        # ====================================================
+        # ----------------------------------------------------
 
         readme_rows.append([
             "",
@@ -1004,9 +869,9 @@ with pd.ExcelWriter(
             ])
 
 
-        # ====================================================
+        # ----------------------------------------------------
         # WRITE README
-        # ====================================================
+        # ----------------------------------------------------
 
         readme_df = pd.DataFrame(
             readme_rows,
@@ -1018,18 +883,18 @@ with pd.ExcelWriter(
         )
 
 
-        # ====================================================
+        # ----------------------------------------------------
         # SHEET NAME
-        # ====================================================
+        # ----------------------------------------------------
 
         sheet_name = safe_sheet_name(
             table_name
         )
 
 
-        # ====================================================
+        # ----------------------------------------------------
         # WRITE README
-        # ====================================================
+        # ----------------------------------------------------
 
         readme_df.to_excel(
             writer,
@@ -1039,25 +904,26 @@ with pd.ExcelWriter(
         )
 
 
-        # ====================================================
+        # ----------------------------------------------------
         # DOCUMENTATION
-        # ====================================================
+        #
+        # README ends around row:
+        # len(readme_df)
+        #
+        # Leave 2 blank rows
+        # ----------------------------------------------------
 
         document_start_row = (
             len(readme_df) + 3
         )
 
 
-        # ====================================================
-        # DOCUMENTATION TITLE
-        # ====================================================
+        # Add title
 
         documentation_title = pd.DataFrame({
 
             "TableName": [
-
-                f"{table_name} - TMDL DOCUMENTATION"
-
+                f"{table_name} - DOCUMENTATION"
             ]
 
         })
@@ -1072,9 +938,9 @@ with pd.ExcelWriter(
         )
 
 
-        # ====================================================
+        # ----------------------------------------------------
         # WRITE TABLE DOCUMENTATION
-        # ====================================================
+        # ----------------------------------------------------
 
         table_df.to_excel(
             writer,
@@ -1104,16 +970,16 @@ for sheet_name in wb.sheetnames:
     ]
 
 
-    # ========================================================
+    # --------------------------------------------------------
     # GENERAL
-    # ========================================================
+    # --------------------------------------------------------
 
     ws.freeze_panes = None
 
 
-    # ========================================================
+    # --------------------------------------------------------
     # README TITLE
-    # ========================================================
+    # --------------------------------------------------------
 
     ws["A1"].font = Font(
         bold=True,
@@ -1121,9 +987,9 @@ for sheet_name in wb.sheetnames:
     )
 
 
-    # ========================================================
+    # --------------------------------------------------------
     # README SECTION HEADERS
-    # ========================================================
+    # --------------------------------------------------------
 
     for row in range(
         1,
@@ -1165,9 +1031,9 @@ for sheet_name in wb.sheetnames:
                 )
 
 
-    # ========================================================
+    # --------------------------------------------------------
     # FIND DOCUMENTATION HEADER
-    # ========================================================
+    # --------------------------------------------------------
 
     documentation_row = None
 
@@ -1194,9 +1060,9 @@ for sheet_name in wb.sheetnames:
             break
 
 
-    # ========================================================
+    # --------------------------------------------------------
     # FORMAT DOCUMENTATION HEADER
-    # ========================================================
+    # --------------------------------------------------------
 
     if documentation_row:
 
@@ -1209,10 +1075,7 @@ for sheet_name in wb.sheetnames:
         )
 
 
-        # ====================================================
-        # ACTUAL TABLE HEADER
-        # ====================================================
-
+        # Actual table header
         header_row = (
             documentation_row + 2
         )
@@ -1226,26 +1089,19 @@ for sheet_name in wb.sheetnames:
                 bold=True
             )
 
-
             cell.alignment = Alignment(
                 vertical="center",
                 wrap_text=True
             )
 
 
-        # ====================================================
-        # FREEZE DOCUMENTATION HEADER
-        # ====================================================
-
+        # Freeze documentation header
         ws.freeze_panes = (
             f"A{header_row + 1}"
         )
 
 
-        # ====================================================
-        # FILTER
-        # ====================================================
-
+        # Filter
         ws.auto_filter.ref = (
             f"A{header_row}:"
             f"{get_column_letter(ws.max_column)}"
@@ -1253,10 +1109,7 @@ for sheet_name in wb.sheetnames:
         )
 
 
-        # ====================================================
-        # BODY FORMATTING
-        # ====================================================
-
+        # Body formatting
         for row in ws.iter_rows(
             min_row=header_row + 1
         ):
@@ -1269,34 +1122,21 @@ for sheet_name in wb.sheetnames:
                 )
 
 
-    # ========================================================
+    # --------------------------------------------------------
     # COLUMN WIDTHS
-    # ========================================================
+    # --------------------------------------------------------
 
     widths = {
-
         "A": 30,
-
         "B": 25,
-
         "C": 35,
-
         "D": 15,
-
         "E": 80,
-
         "F": 40,
-
         "G": 30,
-
         "H": 30,
-
         "I": 50,
-
-        "J": 30,
-
-        "K": 35
-
+        "J": 30
     }
 
 
@@ -1324,16 +1164,12 @@ print()
 print("================================================")
 print("TMDL DOCUMENTATION COMPLETED")
 print("================================================")
-
-
 print(
     "Tables created :",
     len(
         df["TableName"].unique()
     )
 )
-
-
 print(
     "Total Measures :",
     len(
@@ -1343,8 +1179,6 @@ print(
         ]
     )
 )
-
-
 print(
     "Total Columns  :",
     len(
@@ -1354,12 +1188,8 @@ print(
         ]
     )
 )
-
-
 print(
     "Output file    :",
     output_file
 )
-
-
 print("================================================")
