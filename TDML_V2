@@ -1,0 +1,1365 @@
+import re
+import pandas as pd
+
+from openpyxl import load_workbook
+from openpyxl.styles import Font, Alignment, PatternFill
+from openpyxl.utils import get_column_letter
+
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+input_file = "model.tmdl"
+output_file = "TMDL_Documentation.xlsx"
+
+
+# ============================================================
+# REQUIRED OUTPUT COLUMNS
+# ============================================================
+
+required_columns = [
+    "TableName",
+    "ObjectType",
+    "ObjectName",
+    "DataType",
+    "Formula",
+    "MeasureDependencies",
+    "MeasureDependencyTable",
+    "TableDependencies",
+    "ColumnDependencies",
+    "SourceColumn"
+]
+
+
+# ============================================================
+# HELPER FUNCTIONS
+# ============================================================
+
+def clean_name(value):
+
+    if value is None:
+        return ""
+
+    return value.strip()
+
+
+def unique_list(values):
+
+    return list(dict.fromkeys(
+        value.strip()
+        for value in values
+        if value and value.strip()
+    ))
+
+
+def safe_sheet_name(name):
+    """
+    Convert table name into a valid Excel sheet name.
+    """
+
+    name = str(name).strip()
+
+    # Invalid Excel characters
+    name = re.sub(
+        r'[\\/*?:\[\]]',
+        "_",
+        name
+    )
+
+    if not name:
+        name = "Table"
+
+    # Excel maximum sheet name = 31 characters
+    return name[:31]
+
+
+def extract_object_name(
+    quoted_single,
+    quoted_double,
+    unquoted_name
+):
+    """
+    Return the actual object name regardless of
+    whether it is quoted or unquoted.
+    """
+
+    if quoted_single:
+        return quoted_single.strip()
+
+    if quoted_double:
+        return quoted_double.strip()
+
+    if unquoted_name:
+        return unquoted_name.strip()
+
+    return ""
+
+
+# ============================================================
+# READ TMDL
+# ============================================================
+
+print()
+print("================================================")
+print("READING TMDL")
+print("================================================")
+
+with open(
+    input_file,
+    "r",
+    encoding="utf-8"
+) as f:
+
+    text = f.read()
+
+
+print(
+    "TMDL characters:",
+    len(text)
+)
+
+
+# ============================================================
+# FIND TABLES
+# ============================================================
+
+table_pattern = re.compile(
+    r"(?m)^\s*table\s+([^\r\n]+)"
+)
+
+table_matches = list(
+    table_pattern.finditer(text)
+)
+
+print(
+    "Tables found:",
+    len(table_matches)
+)
+
+
+# ============================================================
+# FIRST PASS
+# FIND ALL MEASURES
+# ============================================================
+
+all_measures = []
+
+
+for i, table_match in enumerate(
+    table_matches
+):
+
+    table_name = clean_name(
+        table_match.group(1)
+    )
+
+    table_start = table_match.end()
+
+    if i + 1 < len(table_matches):
+
+        table_end = (
+            table_matches[i + 1].start()
+        )
+
+    else:
+
+        table_end = len(text)
+
+    table_block = text[
+        table_start:table_end
+    ]
+
+
+    # ========================================================
+    # MEASURE PATTERN
+    #
+    # Supports:
+    #
+    # measure 'Total Sales' =
+    # measure "Total Sales" =
+    # measure TotalSales =
+    # measure Total Sales =
+    # ========================================================
+
+    measure_pattern = re.compile(
+        r"""
+        (?ms)
+        ^\s*measure\s+
+
+        (?:
+            '([^']+)'
+            |
+            "([^"]+)"
+            |
+            ([^\r\n=]+?)
+        )
+
+        \s*=\s*
+
+        (.*?)
+
+        (?=
+            ^\s*measure\s+
+            |
+            ^\s*column\s+
+            |
+            ^\s*partition\s+
+            |
+            \Z
+        )
+        """,
+        re.VERBOSE
+    )
+
+
+    measures = measure_pattern.findall(
+        table_block
+    )
+
+
+    for (
+        quoted_single,
+        quoted_double,
+        unquoted_name,
+        measure_block
+    ) in measures:
+
+        measure_name = extract_object_name(
+            quoted_single,
+            quoted_double,
+            unquoted_name
+        )
+
+        if not measure_name:
+            continue
+
+        all_measures.append({
+
+            "TableName":
+                table_name,
+
+            "MeasureName":
+                measure_name
+
+        })
+
+
+# ============================================================
+# MEASURE -> TABLE
+# ============================================================
+
+measure_to_table = {}
+
+for item in all_measures:
+
+    measure_to_table[
+        item["MeasureName"]
+    ] = item["TableName"]
+
+
+print(
+    "Measures found:",
+    len(all_measures)
+)
+
+
+# ============================================================
+# EXTRACT MEASURES + COLUMNS
+# ============================================================
+
+results = []
+
+
+for i, table_match in enumerate(
+    table_matches
+):
+
+    table_name = clean_name(
+        table_match.group(1)
+    )
+
+
+    # ========================================================
+    # TABLE BLOCK
+    # ========================================================
+
+    table_start = table_match.end()
+
+    if i + 1 < len(table_matches):
+
+        table_end = (
+            table_matches[i + 1].start()
+        )
+
+    else:
+
+        table_end = len(text)
+
+
+    table_block = text[
+        table_start:table_end
+    ]
+
+
+    # ========================================================
+    # TABLE COUNTERS
+    # ========================================================
+
+    table_measure_count = 0
+    table_column_count = 0
+
+
+    # ========================================================
+    # MEASURES
+    # ========================================================
+
+    measure_pattern = re.compile(
+        r"""
+        (?ms)
+        ^\s*measure\s+
+
+        (?:
+            '([^']+)'
+            |
+            "([^"]+)"
+            |
+            ([^\r\n=]+?)
+        )
+
+        \s*=\s*
+
+        (.*?)
+
+        (?=
+            ^\s*measure\s+
+            |
+            ^\s*column\s+
+            |
+            ^\s*partition\s+
+            |
+            \Z
+        )
+        """,
+        re.VERBOSE
+    )
+
+
+    measures = measure_pattern.findall(
+        table_block
+    )
+
+
+    # ========================================================
+    # PROCESS MEASURES
+    # ========================================================
+
+    for (
+        quoted_single,
+        quoted_double,
+        unquoted_name,
+        measure_block
+    ) in measures:
+
+        measure_name = extract_object_name(
+            quoted_single,
+            quoted_double,
+            unquoted_name
+        )
+
+        if not measure_name:
+            continue
+
+
+        # ----------------------------------------------------
+        # FORMULA
+        # ----------------------------------------------------
+
+        formula = re.split(
+            r"(?m)^\s*"
+            r"(?:lineageTag|formatString|annotation)"
+            r"\b",
+            measure_block
+        )[0].strip()
+
+
+        # ----------------------------------------------------
+        # MEASURE DEPENDENCIES
+        # ----------------------------------------------------
+
+        bracket_dependencies = re.findall(
+            r"\[([^\]]+)\]",
+            formula
+        )
+
+
+        measure_dependencies = []
+
+
+        for dependency in bracket_dependencies:
+
+            dependency = dependency.strip()
+
+            if (
+                dependency in measure_to_table
+                and dependency != measure_name
+            ):
+
+                measure_dependencies.append(
+                    dependency
+                )
+
+
+        measure_dependencies = unique_list(
+            measure_dependencies
+        )
+
+
+        # ----------------------------------------------------
+        # MEASURE DEPENDENCY TABLE
+        # ----------------------------------------------------
+
+        measure_dependency_tables = []
+
+
+        for dependency in measure_dependencies:
+
+            dependency_table = (
+                measure_to_table.get(
+                    dependency
+                )
+            )
+
+            if dependency_table:
+
+                measure_dependency_tables.append(
+                    dependency_table
+                )
+
+
+        measure_dependency_tables = unique_list(
+            measure_dependency_tables
+        )
+
+
+        # ----------------------------------------------------
+        # TABLE + COLUMN DEPENDENCIES
+        # ----------------------------------------------------
+
+        column_matches = re.findall(
+            r"""
+            (?:
+                '([^']+)'
+                |
+                "([^"]+)"
+                |
+                ([A-Za-z_][A-Za-z0-9_ ]*)
+            )
+            \s*
+            \[
+                \s*([^\]]+?)\s*
+            \]
+            """,
+            formula,
+            re.VERBOSE
+        )
+
+
+        table_dependencies = []
+        column_dependencies = []
+
+
+        for (
+            quoted_single_table,
+            quoted_double_table,
+            unquoted_table,
+            column
+        ) in column_matches:
+
+            dependency_table = (
+                quoted_single_table
+                if quoted_single_table
+                else (
+                    quoted_double_table
+                    if quoted_double_table
+                    else unquoted_table
+                )
+            )
+
+
+            dependency_table = clean_name(
+                dependency_table
+            )
+
+
+            column = clean_name(
+                column
+            )
+
+
+            if dependency_table:
+
+                table_dependencies.append(
+                    dependency_table
+                )
+
+                column_dependencies.append(
+                    f"{dependency_table}[{column}]"
+                )
+
+
+        table_dependencies = unique_list(
+            table_dependencies
+        )
+
+
+        column_dependencies = unique_list(
+            column_dependencies
+        )
+
+
+        # ----------------------------------------------------
+        # ADD MEASURE
+        # ----------------------------------------------------
+
+        results.append({
+
+            "TableName":
+                table_name,
+
+            "ObjectType":
+                "Measure",
+
+            "ObjectName":
+                measure_name,
+
+            "DataType":
+                "",
+
+            "Formula":
+                formula,
+
+            "MeasureDependencies":
+                ", ".join(
+                    measure_dependencies
+                ),
+
+            "MeasureDependencyTable":
+                ", ".join(
+                    measure_dependency_tables
+                ),
+
+            "TableDependencies":
+                ", ".join(
+                    table_dependencies
+                ),
+
+            "ColumnDependencies":
+                ", ".join(
+                    column_dependencies
+                ),
+
+            "SourceColumn":
+                ""
+        })
+
+
+        table_measure_count += 1
+
+
+    # ========================================================
+    # COLUMNS
+    # ========================================================
+
+    column_pattern = re.compile(
+        r"""
+        (?ms)
+        ^\s*column\s+
+
+        (?:
+            '([^']+)'
+            |
+            "([^"]+)"
+            |
+            ([^\r\n=]+?)
+        )
+
+        \s*
+        (?:=\s*)?
+
+        (.*?)
+
+        (?=
+            ^\s*column\s+
+            |
+            ^\s*measure\s+
+            |
+            ^\s*partition\s+
+            |
+            \Z
+        )
+        """,
+        re.VERBOSE
+    )
+
+
+    columns = column_pattern.findall(
+        table_block
+    )
+
+
+    # ========================================================
+    # PROCESS COLUMNS
+    # ========================================================
+
+    for (
+        quoted_single,
+        quoted_double,
+        unquoted_name,
+        column_block
+    ) in columns:
+
+        column_name = extract_object_name(
+            quoted_single,
+            quoted_double,
+            unquoted_name
+        )
+
+
+        if not column_name:
+            continue
+
+
+        # ----------------------------------------------------
+        # CLEAN COLUMN NAME
+        # ----------------------------------------------------
+
+        column_name = re.sub(
+            r"\s+$",
+            "",
+            column_name
+        )
+
+
+        # ----------------------------------------------------
+        # DATA TYPE
+        # ----------------------------------------------------
+
+        datatype_match = re.search(
+            r"(?m)^\s*dataType\s*:\s*([^\r\n]+)",
+            column_block
+        )
+
+
+        datatype = (
+            datatype_match.group(1).strip()
+            if datatype_match
+            else ""
+        )
+
+
+        # ----------------------------------------------------
+        # SOURCE COLUMN
+        # ----------------------------------------------------
+
+        source_column_match = re.search(
+            r'(?m)^\s*sourceColumn\s*:\s*"([^"]*)"',
+            column_block
+        )
+
+
+        source_column = (
+            source_column_match.group(1).strip()
+            if source_column_match
+            else ""
+        )
+
+
+        # ----------------------------------------------------
+        # ADD COLUMN
+        # ----------------------------------------------------
+
+        results.append({
+
+            "TableName":
+                table_name,
+
+            "ObjectType":
+                "Column",
+
+            "ObjectName":
+                column_name,
+
+            "DataType":
+                datatype,
+
+            "Formula":
+                "",
+
+            "MeasureDependencies":
+                "",
+
+            "MeasureDependencyTable":
+                "",
+
+            "TableDependencies":
+                "",
+
+            "ColumnDependencies":
+                "",
+
+            "SourceColumn":
+                source_column
+        })
+
+
+        table_column_count += 1
+
+
+    # ========================================================
+    # VALIDATION OUTPUT
+    # ========================================================
+
+    print(
+        f"Table: {table_name} | "
+        f"Measures: {table_measure_count} | "
+        f"Columns: {table_column_count}"
+    )
+
+
+# ============================================================
+# DATAFRAME
+# ============================================================
+
+df = pd.DataFrame(
+    results
+)
+
+
+# ============================================================
+# ENSURE ALL REQUIRED COLUMNS EXIST
+# ============================================================
+
+for column in required_columns:
+
+    if column not in df.columns:
+
+        df[column] = ""
+
+
+df = df[
+    required_columns
+]
+
+
+# ============================================================
+# ONLY MEASURE + COLUMN
+# ============================================================
+
+df = df[
+    df["ObjectType"].isin(
+        [
+            "Measure",
+            "Column"
+        ]
+    )
+].copy()
+
+
+# ============================================================
+# SORT
+# ============================================================
+
+object_order = {
+
+    "Measure": 1,
+
+    "Column": 2
+}
+
+
+df["_Order"] = df[
+    "ObjectType"
+].map(
+    object_order
+)
+
+
+df = df.sort_values(
+    by=[
+        "TableName",
+        "_Order",
+        "ObjectName"
+    ]
+)
+
+
+df = df.drop(
+    columns=[
+        "_Order"
+    ]
+)
+
+
+# ============================================================
+# CREATE EXCEL
+# ============================================================
+
+with pd.ExcelWriter(
+    output_file,
+    engine="openpyxl"
+) as writer:
+
+
+    # ========================================================
+    # CREATE ONE SHEET PER TABLE
+    # ========================================================
+
+    for table_name in sorted(
+        df["TableName"].unique()
+    ):
+
+        table_df = df[
+            df["TableName"] == table_name
+        ].copy()
+
+
+        # ====================================================
+        # TABLE README
+        # ====================================================
+
+        table_measure_df = table_df[
+            table_df["ObjectType"]
+            == "Measure"
+        ]
+
+
+        table_column_df = table_df[
+            table_df["ObjectType"]
+            == "Column"
+        ]
+
+
+        measure_count = len(
+            table_measure_df
+        )
+
+
+        column_count = len(
+            table_column_df
+        )
+
+
+        # ====================================================
+        # README DATA
+        # ====================================================
+
+        readme_rows = []
+
+
+        readme_rows.append([
+            "README",
+            "",
+            ""
+        ])
+
+
+        readme_rows.append([
+            "Table Name",
+            table_name,
+            ""
+        ])
+
+
+        readme_rows.append([
+            "Number of Columns",
+            column_count,
+            ""
+        ])
+
+
+        readme_rows.append([
+            "Number of Measures",
+            measure_count,
+            ""
+        ])
+
+
+        # ====================================================
+        # MEASURES
+        # ====================================================
+
+        readme_rows.append([
+            "",
+            "",
+            ""
+        ])
+
+
+        readme_rows.append([
+            "MEASURES",
+            "",
+            ""
+        ])
+
+
+        for _, row in table_measure_df.iterrows():
+
+            readme_rows.append([
+
+                row["ObjectName"],
+
+                "Measure Dependencies",
+
+                row[
+                    "MeasureDependencies"
+                ]
+                if row[
+                    "MeasureDependencies"
+                ]
+                else "None"
+
+            ])
+
+
+            if row[
+                "MeasureDependencyTable"
+            ]:
+
+                readme_rows.append([
+
+                    "",
+
+                    "Measure Dependency Table",
+
+                    row[
+                        "MeasureDependencyTable"
+                    ]
+
+                ])
+
+
+            if row[
+                "TableDependencies"
+            ]:
+
+                readme_rows.append([
+
+                    "",
+
+                    "Table Dependencies",
+
+                    row[
+                        "TableDependencies"
+                    ]
+
+                ])
+
+
+            if row[
+                "ColumnDependencies"
+            ]:
+
+                readme_rows.append([
+
+                    "",
+
+                    "Column Dependencies",
+
+                    row[
+                        "ColumnDependencies"
+                    ]
+
+                ])
+
+
+        # ====================================================
+        # COLUMNS
+        # ====================================================
+
+        readme_rows.append([
+            "",
+            "",
+            ""
+        ])
+
+
+        readme_rows.append([
+            "COLUMNS",
+            "",
+            ""
+        ])
+
+
+        for _, row in table_column_df.iterrows():
+
+            readme_rows.append([
+
+                row["ObjectName"],
+
+                row["DataType"],
+
+                row["SourceColumn"]
+
+            ])
+
+
+        # ====================================================
+        # WRITE README
+        # ====================================================
+
+        readme_df = pd.DataFrame(
+            readme_rows,
+            columns=[
+                "Section",
+                "Item",
+                "Details"
+            ]
+        )
+
+
+        # ====================================================
+        # SHEET NAME
+        # ====================================================
+
+        sheet_name = safe_sheet_name(
+            table_name
+        )
+
+
+        # ====================================================
+        # WRITE README
+        # ====================================================
+
+        readme_df.to_excel(
+            writer,
+            sheet_name=sheet_name,
+            index=False,
+            startrow=0
+        )
+
+
+        # ====================================================
+        # DOCUMENTATION
+        # ====================================================
+
+        document_start_row = (
+            len(readme_df) + 3
+        )
+
+
+        # ====================================================
+        # DOCUMENTATION TITLE
+        # ====================================================
+
+        documentation_title = pd.DataFrame({
+
+            "TableName": [
+
+                f"{table_name} - TMDL DOCUMENTATION"
+
+            ]
+
+        })
+
+
+        documentation_title.to_excel(
+            writer,
+            sheet_name=sheet_name,
+            index=False,
+            startrow=document_start_row,
+            header=False
+        )
+
+
+        # ====================================================
+        # WRITE TABLE DOCUMENTATION
+        # ====================================================
+
+        table_df.to_excel(
+            writer,
+            sheet_name=sheet_name,
+            index=False,
+            startrow=document_start_row + 2
+        )
+
+
+# ============================================================
+# FORMAT WORKBOOK
+# ============================================================
+
+wb = load_workbook(
+    output_file
+)
+
+
+# ============================================================
+# FORMAT EVERY TABLE SHEET
+# ============================================================
+
+for sheet_name in wb.sheetnames:
+
+    ws = wb[
+        sheet_name
+    ]
+
+
+    # ========================================================
+    # GENERAL
+    # ========================================================
+
+    ws.freeze_panes = None
+
+
+    # ========================================================
+    # README TITLE
+    # ========================================================
+
+    ws["A1"].font = Font(
+        bold=True,
+        size=16
+    )
+
+
+    # ========================================================
+    # README SECTION HEADERS
+    # ========================================================
+
+    for row in range(
+        1,
+        ws.max_row + 1
+    ):
+
+        value = ws.cell(
+            row=row,
+            column=1
+        ).value
+
+
+        if value in [
+            "README",
+            "MEASURES",
+            "COLUMNS"
+        ]:
+
+            ws.cell(
+                row=row,
+                column=1
+            ).font = Font(
+                bold=True,
+                size=12
+            )
+
+
+            for col in range(
+                1,
+                4
+            ):
+
+                ws.cell(
+                    row=row,
+                    column=col
+                ).alignment = Alignment(
+                    vertical="center",
+                    wrap_text=True
+                )
+
+
+    # ========================================================
+    # FIND DOCUMENTATION HEADER
+    # ========================================================
+
+    documentation_row = None
+
+
+    for row in range(
+        1,
+        ws.max_row + 1
+    ):
+
+        value = ws.cell(
+            row=row,
+            column=1
+        ).value
+
+
+        if (
+            isinstance(value, str)
+            and "TMDL DOCUMENTATION"
+            in value
+        ):
+
+            documentation_row = row
+
+            break
+
+
+    # ========================================================
+    # FORMAT DOCUMENTATION HEADER
+    # ========================================================
+
+    if documentation_row:
+
+        ws.cell(
+            row=documentation_row,
+            column=1
+        ).font = Font(
+            bold=True,
+            size=14
+        )
+
+
+        # ====================================================
+        # ACTUAL TABLE HEADER
+        # ====================================================
+
+        header_row = (
+            documentation_row + 2
+        )
+
+
+        for cell in ws[
+            header_row
+        ]:
+
+            cell.font = Font(
+                bold=True
+            )
+
+
+            cell.alignment = Alignment(
+                vertical="center",
+                wrap_text=True
+            )
+
+
+        # ====================================================
+        # FREEZE DOCUMENTATION HEADER
+        # ====================================================
+
+        ws.freeze_panes = (
+            f"A{header_row + 1}"
+        )
+
+
+        # ====================================================
+        # FILTER
+        # ====================================================
+
+        ws.auto_filter.ref = (
+            f"A{header_row}:"
+            f"{get_column_letter(ws.max_column)}"
+            f"{ws.max_row}"
+        )
+
+
+        # ====================================================
+        # BODY FORMATTING
+        # ====================================================
+
+        for row in ws.iter_rows(
+            min_row=header_row + 1
+        ):
+
+            for cell in row:
+
+                cell.alignment = Alignment(
+                    vertical="top",
+                    wrap_text=True
+                )
+
+
+    # ========================================================
+    # COLUMN WIDTHS
+    # ========================================================
+
+    widths = {
+
+        "A": 30,
+
+        "B": 25,
+
+        "C": 35,
+
+        "D": 15,
+
+        "E": 80,
+
+        "F": 40,
+
+        "G": 30,
+
+        "H": 30,
+
+        "I": 50,
+
+        "J": 30,
+
+        "K": 35
+
+    }
+
+
+    for column, width in widths.items():
+
+        ws.column_dimensions[
+            column
+        ].width = width
+
+
+# ============================================================
+# SAVE
+# ============================================================
+
+wb.save(
+    output_file
+)
+
+
+# ============================================================
+# FINAL OUTPUT
+# ============================================================
+
+print()
+print("================================================")
+print("TMDL DOCUMENTATION COMPLETED")
+print("================================================")
+
+
+print(
+    "Tables created :",
+    len(
+        df["TableName"].unique()
+    )
+)
+
+
+print(
+    "Total Measures :",
+    len(
+        df[
+            df["ObjectType"]
+            == "Measure"
+        ]
+    )
+)
+
+
+print(
+    "Total Columns  :",
+    len(
+        df[
+            df["ObjectType"]
+            == "Column"
+        ]
+    )
+)
+
+
+print(
+    "Output file    :",
+    output_file
+)
+
+
+print("================================================")
