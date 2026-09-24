@@ -1,0 +1,2529 @@
+
+import os
+import json
+import re
+import math
+import html
+from pathlib import Path
+
+import pandas as pd
+from openpyxl import load_workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+# Give ONLY the PBIP PROJECT FOLDER
+PBIP_FOLDER = r"E:\test_env\Reports"
+
+OUTPUT_EXCEL = os.path.join(
+    PBIP_FOLDER,
+    "PowerBI_Detailed_Report_Analysis1.xlsx"
+)
+
+
+# ============================================================
+# BASIC HELPERS
+# ============================================================
+
+def load_json(file_path):
+    try:
+        with open(file_path, "r", encoding="utf-8-sig") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"[WARNING] Could not read: {file_path}")
+        print(e)
+        return {}
+
+
+def clean_text(value):
+    if value is None:
+        return ""
+
+    if isinstance(value, bool):
+        return str(value)
+
+    if isinstance(value, (dict, list)):
+        try:
+            return json.dumps(
+                value,
+                ensure_ascii=False
+            )
+        except Exception:
+            return str(value)
+
+    return str(value).strip()
+
+
+def normalize_name(value):
+    """
+    Convert technical Power BI names into readable names.
+    """
+    if value is None:
+        return ""
+
+    value = str(value)
+
+    value = value.replace(
+        "\n",
+        " "
+    ).replace(
+        "\r",
+        " "
+    )
+
+    value = re.sub(
+        r"\s+",
+        " ",
+        value
+    )
+
+    return value.strip()
+
+
+def recursive_find(obj, key_name):
+    results = []
+
+    if isinstance(obj, dict):
+
+        for key, value in obj.items():
+
+            if key.lower() == key_name.lower():
+                results.append(value)
+
+            results.extend(
+                recursive_find(
+                    value,
+                    key_name
+                )
+            )
+
+    elif isinstance(obj, list):
+
+        for item in obj:
+
+            results.extend(
+                recursive_find(
+                    item,
+                    key_name
+                )
+            )
+
+    return results
+
+
+def recursive_find_all_keys(obj, key_names):
+    """
+    Search multiple keys at once.
+    """
+    results = []
+
+    key_names = {
+        x.lower()
+        for x in key_names
+    }
+
+    def walk(value):
+
+        if isinstance(value, dict):
+
+            for key, child in value.items():
+
+                if str(key).lower() in key_names:
+
+                    results.append(
+                        (key, child)
+                    )
+
+                walk(child)
+
+        elif isinstance(value, list):
+
+            for item in value:
+                walk(item)
+
+    walk(obj)
+
+    return results
+
+
+def unique_list(values):
+
+    output = []
+    seen = set()
+
+    for value in values:
+
+        value = clean_text(value)
+
+        if not value:
+            continue
+
+        if value not in seen:
+
+            seen.add(value)
+            output.append(value)
+
+    return output
+
+
+def join_unique(values, separator=" | "):
+
+    return separator.join(
+        unique_list(values)
+    )
+
+
+def safe_json(value):
+
+    try:
+        return json.dumps(
+            value,
+            ensure_ascii=False
+        )
+    except Exception:
+        return str(value)
+
+
+# ============================================================
+# READABLE VISUAL TYPE
+# ============================================================
+
+VISUAL_TYPE_MAP = {
+
+    "columnChart":
+        "Clustered Column Chart",
+
+    "barChart":
+        "Clustered Bar Chart",
+
+    "lineChart":
+        "Line Chart",
+
+    "lineStackedColumnComboChart":
+        "Line and Stacked Column Chart",
+
+    "lineClusteredColumnComboChart":
+        "Line and Clustered Column Chart",
+
+    "areaChart":
+        "Area Chart",
+
+    "stackedAreaChart":
+        "Stacked Area Chart",
+
+    "pieChart":
+        "Pie Chart",
+
+    "donutChart":
+        "Donut Chart",
+
+    "scatterChart":
+        "Scatter Chart",
+
+    "treemap":
+        "Treemap",
+
+    "funnel":
+        "Funnel",
+
+    "gauge":
+        "Gauge",
+
+    "card":
+        "Card",
+
+    "multiRowCard":
+        "Multi-row Card",
+
+    "slicer":
+        "Slicer",
+
+    "table":
+        "Table",
+
+    "pivotTable":
+        "Matrix",
+
+    "matrix":
+        "Matrix",
+
+    "map":
+        "Map",
+
+    "filledMap":
+        "Filled Map",
+
+    "shapeMap":
+        "Shape Map",
+
+    "waterfallChart":
+        "Waterfall Chart",
+
+    "ribbonChart":
+        "Ribbon Chart",
+
+    "wordCloud":
+        "Word Cloud",
+
+    "pythonScript":
+        "Python Visual",
+
+    "scriptVisual":
+        "Script Visual",
+
+    "qnaVisual":
+        "Q&A",
+
+    "textbox":
+        "Text Box",
+
+    "image":
+        "Image",
+
+    "bookmarkNavigator":
+        "Bookmark Navigator",
+
+    "pageNavigator":
+        "Page Navigator",
+
+    "button":
+        "Button",
+
+    "shape":
+        "Shape"
+}
+
+
+def readable_visual_type(value):
+
+    value = clean_text(value)
+
+    if not value:
+        return "Unknown"
+
+    if value in VISUAL_TYPE_MAP:
+        return VISUAL_TYPE_MAP[value]
+
+    # Convert camelCase to readable text
+    value = re.sub(
+        r"(?<!^)([A-Z])",
+        r" \1",
+        value
+    )
+
+    return value.title()
+
+
+# ============================================================
+# VISUAL TYPE
+# ============================================================
+
+def extract_visual_type(visual_json):
+
+    visual = visual_json.get(
+        "visual",
+        {}
+    )
+
+    if isinstance(visual, dict):
+
+        value = visual.get(
+            "visualType"
+        )
+
+        if value:
+            return readable_visual_type(
+                value
+            )
+
+        value = visual.get(
+            "type"
+        )
+
+        if value:
+            return readable_visual_type(
+                value
+            )
+
+    values = recursive_find(
+        visual_json,
+        "visualType"
+    )
+
+    if values:
+
+        return readable_visual_type(
+            values[0]
+        )
+
+    return "Unknown"
+
+
+# ============================================================
+# VISUAL TITLE
+# ============================================================
+
+def extract_visual_title(visual_json):
+
+    titles = recursive_find(
+        visual_json,
+        "title"
+    )
+
+    for title in titles:
+
+        if not isinstance(title, dict):
+            continue
+
+        text_obj = title.get(
+            "text"
+        )
+
+        if isinstance(text_obj, dict):
+
+            expr = text_obj.get(
+                "expr"
+            )
+
+            if isinstance(expr, dict):
+
+                literal = expr.get(
+                    "Literal"
+                )
+
+                if isinstance(
+                    literal,
+                    dict
+                ):
+
+                    value = literal.get(
+                        "Value"
+                    )
+
+                    if value:
+
+                        value = str(
+                            value
+                        ).strip(
+                            "'\""
+                        )
+
+                        if value:
+                            return value
+
+            value = text_obj.get(
+                "value"
+            )
+
+            if value:
+                return clean_text(
+                    value
+                )
+
+        if isinstance(
+            text_obj,
+            str
+        ):
+
+            return text_obj
+
+    return ""
+
+
+# ============================================================
+# READABLE VISUAL ID
+# ============================================================
+
+def generate_visual_name(
+    visual_number,
+    visual_type,
+    title
+):
+
+    if title:
+
+        return (
+            f"Visual {visual_number} - "
+            f"{title}"
+        )
+
+    return (
+        f"Visual {visual_number} - "
+        f"{visual_type}"
+    )
+
+
+# ============================================================
+# EXTRACT VISUAL POSITION
+# ============================================================
+
+def extract_position(visual_json):
+
+    position = visual_json.get(
+        "position",
+        {}
+    )
+
+    if not isinstance(
+        position,
+        dict
+    ):
+        return {}
+
+    return {
+        "X": position.get("x", ""),
+        "Y": position.get("y", ""),
+        "Width": position.get("width", ""),
+        "Height": position.get("height", ""),
+        "Z Order": position.get("z", "")
+    }
+
+
+# ============================================================
+# FORMAT POWER BI FIELD
+# ============================================================
+
+def format_field(
+    table="",
+    column="",
+    measure="",
+    aggregation=""
+):
+
+    table = normalize_name(table)
+    column = normalize_name(column)
+    measure = normalize_name(measure)
+    aggregation = normalize_name(aggregation)
+
+    if measure:
+
+        if table:
+            result = f"{table}[{measure}]"
+        else:
+            result = measure
+
+    elif column:
+
+        if table:
+            result = f"{table}[{column}]"
+        else:
+            result = column
+
+    else:
+
+        result = table
+
+    if aggregation:
+
+        result += f" ({aggregation})"
+
+    return result
+
+
+# ============================================================
+# EXTRACT FIELD FROM OBJECT
+# ============================================================
+
+def parse_field_object(obj):
+
+    results = []
+
+    if not isinstance(
+        obj,
+        dict
+    ):
+        return results
+
+    # --------------------------------------------------------
+    # Direct Entity / Property
+    # --------------------------------------------------------
+
+    entity = obj.get(
+        "Entity"
+    )
+
+    property_name = obj.get(
+        "Property"
+    )
+
+    if entity or property_name:
+
+        results.append({
+            "Table":
+                clean_text(entity),
+
+            "Column":
+                clean_text(property_name),
+
+            "Measure":
+                "",
+
+            "Aggregation":
+                "",
+
+            "Field":
+                format_field(
+                    entity,
+                    property_name
+                ),
+
+            "Field Type":
+                "Column"
+        })
+
+    # --------------------------------------------------------
+    # Measure object
+    # --------------------------------------------------------
+
+    measure = obj.get(
+        "Measure"
+    )
+
+    if isinstance(
+        measure,
+        dict
+    ):
+
+        entity = measure.get(
+            "Entity",
+            ""
+        )
+
+        name = (
+            measure.get("Property")
+            or
+            measure.get("Name")
+            or
+            measure.get("Measure")
+            or
+            ""
+        )
+
+        results.append({
+
+            "Table":
+                clean_text(entity),
+
+            "Column":
+                "",
+
+            "Measure":
+                clean_text(name),
+
+            "Aggregation":
+                "",
+
+            "Field":
+                format_field(
+                    entity,
+                    "",
+                    name
+                ),
+
+            "Field Type":
+                "Measure"
+        })
+
+    # --------------------------------------------------------
+    # Aggregation
+    # --------------------------------------------------------
+
+    aggregation = (
+        obj.get("Aggregation")
+        or
+        obj.get("aggregation")
+        or
+        ""
+    )
+
+    if aggregation:
+
+        aggregation = clean_text(
+            aggregation
+        )
+
+        # Attach aggregation to
+        # an existing field
+        if results:
+
+            for item in results:
+                item["Aggregation"] = (
+                    aggregation
+                )
+
+                item["Field"] = format_field(
+                    item["Table"],
+                    item["Column"],
+                    item["Measure"],
+                    aggregation
+                )
+
+    return results
+
+
+# ============================================================
+# EXTRACT ALL FIELDS
+# ============================================================
+
+def extract_all_fields(visual_json):
+
+    fields = []
+
+    def walk(obj):
+
+        if isinstance(
+            obj,
+            dict
+        ):
+
+            parsed = parse_field_object(
+                obj
+            )
+
+            fields.extend(
+                parsed
+            )
+
+            for value in obj.values():
+                walk(value)
+
+        elif isinstance(
+            obj,
+            list
+        ):
+
+            for item in obj:
+                walk(item)
+
+    walk(
+        visual_json
+    )
+
+    # Unique
+    unique = []
+    seen = set()
+
+    for field in fields:
+
+        key = (
+            field["Table"],
+            field["Column"],
+            field["Measure"],
+            field["Aggregation"],
+            field["Field Type"]
+        )
+
+        if key in seen:
+            continue
+
+        seen.add(
+            key
+        )
+
+        unique.append(
+            field
+        )
+
+    return unique
+
+
+# ============================================================
+# EXTRACT PROJECTIONS / AXIS ROLES
+# ============================================================
+
+def extract_projections(visual_json):
+
+    results = []
+
+    projections = recursive_find(
+        visual_json,
+        "projections"
+    )
+
+    for projection in projections:
+
+        if not isinstance(
+            projection,
+            dict
+        ):
+            continue
+
+        for role, items in projection.items():
+
+            if not isinstance(
+                items,
+                list
+            ):
+                continue
+
+            for item in items:
+
+                if not isinstance(
+                    item,
+                    dict
+                ):
+                    continue
+
+                query_ref = (
+                    item.get(
+                        "queryRef"
+                    )
+                    or
+                    item.get(
+                        "queryName"
+                    )
+                    or
+                    ""
+                )
+
+                display_name = (
+                    item.get(
+                        "displayName"
+                    )
+                    or
+                    ""
+                )
+
+                results.append({
+
+                    "Role":
+                        normalize_name(
+                            role
+                        ),
+
+                    "Query Ref":
+                        normalize_name(
+                            query_ref
+                        ),
+
+                    "Display Name":
+                        normalize_name(
+                            display_name
+                        ),
+
+                    "Projection":
+                        safe_json(
+                            item
+                        )
+                })
+
+    return results
+
+
+# ============================================================
+# READABLE ROLE NAME
+# ============================================================
+
+ROLE_MAP = {
+
+    "Category":
+        "X Axis / Category",
+
+    "X":
+        "X Axis",
+
+    "Y":
+        "Y Axis",
+
+    "Y2":
+        "Secondary Y Axis",
+
+    "Values":
+        "Values",
+
+    "Value":
+        "Values",
+
+    "Legend":
+        "Legend",
+
+    "Tooltips":
+        "Tooltips",
+
+    "Tooltip":
+        "Tooltips",
+
+    "Rows":
+        "Rows",
+
+    "Columns":
+        "Columns",
+
+    "Details":
+        "Details",
+
+    "Size":
+        "Size",
+
+    "Color":
+        "Color",
+
+    "Series":
+        "Series",
+
+    "Small multiples":
+        "Small Multiples",
+
+    "SmallMultiple":
+        "Small Multiples"
+}
+
+
+def readable_role(role):
+
+    if role in ROLE_MAP:
+        return ROLE_MAP[role]
+
+    return role
+
+
+# ============================================================
+# EXTRACT QUERY REFS
+# ============================================================
+
+def extract_query_refs(visual_json):
+
+    refs = []
+
+    def walk(obj):
+
+        if isinstance(
+            obj,
+            dict
+        ):
+
+            if "queryRef" in obj:
+
+                refs.append(
+                    clean_text(
+                        obj["queryRef"]
+                    )
+                )
+
+            if "Name" in obj:
+
+                name = obj.get(
+                    "Name"
+                )
+
+                if isinstance(
+                    name,
+                    str
+                ):
+
+                    refs.append(
+                        name
+                    )
+
+            for value in obj.values():
+                walk(value)
+
+        elif isinstance(
+            obj,
+            list
+        ):
+
+            for item in obj:
+                walk(item)
+
+    walk(
+        visual_json
+    )
+
+    return unique_list(
+        refs
+    )
+
+
+# ============================================================
+# EXTRACT FIELDS BY ROLE
+# ============================================================
+
+def extract_role_fields(
+    visual_json
+):
+
+    role_data = {}
+
+    # --------------------------------------------------------
+    # First attempt: projections
+    # --------------------------------------------------------
+
+    projections = extract_projections(
+        visual_json
+    )
+
+    for item in projections:
+
+        role = readable_role(
+            item["Role"]
+        )
+
+        values = role_data.setdefault(
+            role,
+            []
+        )
+
+        if item["Display Name"]:
+            values.append(
+                item["Display Name"]
+            )
+
+        elif item["Query Ref"]:
+            values.append(
+                item["Query Ref"]
+            )
+
+    # --------------------------------------------------------
+    # Search objects containing queryRef
+    # --------------------------------------------------------
+
+    def walk(obj):
+
+        if isinstance(
+            obj,
+            dict
+        ):
+
+            if "queryRef" in obj:
+
+                ref = clean_text(
+                    obj.get(
+                        "queryRef"
+                    )
+                )
+
+                parent_role = (
+                    obj.get(
+                        "role"
+                    )
+                    or
+                    obj.get(
+                        "Role"
+                    )
+                    or
+                    ""
+                )
+
+                if parent_role and ref:
+
+                    role = readable_role(
+                        parent_role
+                    )
+
+                    role_data.setdefault(
+                        role,
+                        []
+                    ).append(
+                        ref
+                    )
+
+            for value in obj.values():
+                walk(value)
+
+        elif isinstance(
+            obj,
+            list
+        ):
+
+            for item in obj:
+                walk(item)
+
+    walk(
+        visual_json
+    )
+
+    # Remove duplicates
+    for role in list(
+        role_data.keys()
+    ):
+
+        role_data[role] = unique_list(
+            role_data[role]
+        )
+
+    return role_data
+
+
+# ============================================================
+# QUERY EXTRACTION
+# ============================================================
+
+def extract_query_objects(
+    visual_json
+):
+
+    query_objects = []
+
+    keys = [
+        "query",
+        "prototypeQuery",
+        "semanticQueryDataShapeCommand",
+        "queryState",
+        "commands"
+    ]
+
+    for key in keys:
+
+        values = recursive_find(
+            visual_json,
+            key
+        )
+
+        for value in values:
+
+            if value:
+
+                query_objects.append(
+                    value
+                )
+
+    return query_objects
+
+
+# ============================================================
+# READABLE QUERY
+# ============================================================
+
+def extract_readable_query(
+    visual_json
+):
+
+    objects = extract_query_objects(
+        visual_json
+    )
+
+    if not objects:
+        return ""
+
+    lines = []
+
+    for obj in objects:
+
+        if isinstance(
+            obj,
+            dict
+        ):
+
+            selects = obj.get(
+                "Select"
+            )
+
+            if isinstance(
+                selects,
+                list
+            ):
+
+                for select in selects:
+
+                    if not isinstance(
+                        select,
+                        dict
+                    ):
+                        continue
+
+                    name = (
+                        select.get(
+                            "Name"
+                        )
+                        or
+                        select.get(
+                            "queryRef"
+                        )
+                        or
+                        ""
+                    )
+
+                    expr = select.get(
+                        "Column"
+                    )
+
+                    if isinstance(
+                        expr,
+                        dict
+                    ):
+
+                        source = expr.get(
+                            "Source"
+                        )
+
+                        property_name = (
+                            expr.get(
+                                "Property"
+                            )
+                            or
+                            expr.get(
+                                "Name"
+                            )
+                        )
+
+                        if property_name:
+
+                            lines.append(
+                                str(
+                                    property_name
+                                )
+                            )
+
+                    elif name:
+
+                        lines.append(
+                            str(name)
+                        )
+
+    return join_unique(
+        lines
+    )
+
+
+# ============================================================
+# FILTER EXTRACTION
+# ============================================================
+
+def extract_filters(
+    obj
+):
+
+    filters = []
+
+    values = (
+        recursive_find(
+            obj,
+            "filter"
+        )
+        +
+        recursive_find(
+            obj,
+            "filters"
+        )
+    )
+
+    for value in values:
+
+        if not value:
+            continue
+
+        if isinstance(
+            value,
+            (dict, list)
+        ):
+
+            try:
+                text = json.dumps(
+                    value,
+                    ensure_ascii=False
+                )
+            except Exception:
+                text = str(value)
+
+        else:
+
+            text = str(
+                value
+            )
+
+        text = text.strip()
+
+        if text:
+            filters.append(
+                text
+            )
+
+    return join_unique(
+        filters,
+        separator="\n"
+    )
+
+
+# ============================================================
+# SORT INFORMATION
+# ============================================================
+
+def extract_sort_info(
+    visual_json
+):
+
+    values = []
+
+    for key in [
+        "sort",
+        "sortBy",
+        "sortOrder"
+    ]:
+
+        found = recursive_find(
+            visual_json,
+            key
+        )
+
+        for value in found:
+
+            if isinstance(
+                value,
+                (dict, list)
+            ):
+
+                values.append(
+                    safe_json(value)
+                )
+
+            else:
+
+                values.append(
+                    clean_text(value)
+                )
+
+    return join_unique(
+        values,
+        separator="\n"
+    )
+
+
+# ============================================================
+# INTERACTION / SELECTION INFO
+# ============================================================
+
+def extract_interaction_info(
+    visual_json
+):
+
+    values = []
+
+    for key in [
+        "visualHeader",
+        "drillFilterOtherVisuals",
+        "visualTooltip",
+        "selection",
+        "objects",
+        "syncGroup"
+    ]:
+
+        found = recursive_find(
+            visual_json,
+            key
+        )
+
+        for value in found:
+
+            if isinstance(
+                value,
+                (dict, list)
+            ):
+
+                values.append(
+                    safe_json(
+                        value
+                    )
+                )
+
+            elif value:
+
+                values.append(
+                    clean_text(value)
+                )
+
+    return join_unique(
+        values,
+        separator="\n"
+    )
+
+
+# ============================================================
+# PAGE NAME
+# ============================================================
+
+def extract_page_name(
+    page_folder
+):
+
+    page_json_path = (
+        page_folder /
+        "page.json"
+    )
+
+    if page_json_path.exists():
+
+        data = load_json(
+            page_json_path
+        )
+
+        for key in [
+            "displayName",
+            "name",
+            "pageName"
+        ]:
+
+            value = data.get(
+                key
+            )
+
+            if value:
+                return clean_text(
+                    value
+                )
+
+        values = recursive_find(
+            data,
+            "displayName"
+        )
+
+        if values:
+
+            return clean_text(
+                values[0]
+            )
+
+    return page_folder.name
+
+
+# ============================================================
+# PAGE VISUAL ORDER
+# ============================================================
+
+def get_visual_folders(
+    visuals_folder
+):
+
+    visual_folders = [
+        v
+        for v in visuals_folder.iterdir()
+        if v.is_dir()
+    ]
+
+    # PBIR does not always provide a
+    # simple human-readable ordering.
+    #
+    # Position is therefore used where
+    # available.
+
+    sortable = []
+
+    for folder in visual_folders:
+
+        visual_json_path = (
+            folder /
+            "visual.json"
+        )
+
+        data = {}
+
+        if visual_json_path.exists():
+            data = load_json(
+                visual_json_path
+            )
+
+        position = extract_position(
+            data
+        )
+
+        y = position.get(
+            "Y",
+            999999
+        )
+
+        x = position.get(
+            "X",
+            999999
+        )
+
+        try:
+            y = float(y)
+        except Exception:
+            y = 999999
+
+        try:
+            x = float(x)
+        except Exception:
+            x = 999999
+
+        sortable.append(
+            (
+                y,
+                x,
+                folder
+            )
+        )
+
+    sortable.sort(
+        key=lambda x: (
+            x[0],
+            x[1]
+        )
+    )
+
+    return [
+        x[2]
+        for x in sortable
+    ]
+
+
+# ============================================================
+# PAGE SUMMARY
+# ============================================================
+
+def create_page_summary(
+    page_name,
+    page_number,
+    page_filters,
+    visual_records
+):
+
+    visual_count = len(
+        visual_records
+    )
+
+    type_counts = {}
+
+    for row in visual_records:
+
+        visual_type = row.get(
+            "Visual Type",
+            "Unknown"
+        )
+
+        type_counts[
+            visual_type
+        ] = (
+            type_counts.get(
+                visual_type,
+                0
+            ) + 1
+        )
+
+    type_summary = join_unique(
+        [
+            f"{k}: {v}"
+            for k, v
+            in type_counts.items()
+        ],
+        separator=" | "
+    )
+
+    return {
+
+        "Page Number":
+            page_number,
+
+        "Page Name":
+            page_name,
+
+        "Visual Count":
+            visual_count,
+
+        "Visual Types":
+            type_summary,
+
+        "Page Filters":
+            page_filters
+    }
+
+
+# ============================================================
+# EXTRACT ONE PAGE
+# ============================================================
+
+def extract_page(
+    page_folder,
+    page_number
+):
+
+    page_name = extract_page_name(
+        page_folder
+    )
+
+    page_json_path = (
+        page_folder /
+        "page.json"
+    )
+
+    if page_json_path.exists():
+
+        page_json = load_json(
+            page_json_path
+        )
+
+    else:
+
+        page_json = {}
+
+    page_filters = extract_filters(
+        page_json
+    )
+
+    visuals_folder = (
+        page_folder /
+        "visuals"
+    )
+
+    visual_records = []
+
+    if not visuals_folder.exists():
+
+        return (
+            page_name,
+            page_filters,
+            visual_records
+        )
+
+    visual_folders = get_visual_folders(
+        visuals_folder
+    )
+
+    for visual_number, visual_folder in enumerate(
+        visual_folders,
+        start=1
+    ):
+
+        visual_json_path = (
+            visual_folder /
+            "visual.json"
+        )
+
+        if not visual_json_path.exists():
+            continue
+
+        visual_json = load_json(
+            visual_json_path
+        )
+
+        visual_type = extract_visual_type(
+            visual_json
+        )
+
+        title = extract_visual_title(
+            visual_json
+        )
+
+        visual_name = generate_visual_name(
+            visual_number,
+            visual_type,
+            title
+        )
+
+        position = extract_position(
+            visual_json
+        )
+
+        role_fields = extract_role_fields(
+            visual_json
+        )
+
+        fields = extract_all_fields(
+            visual_json
+        )
+
+        # ----------------------------------------------------
+        # General field list
+        # ----------------------------------------------------
+
+        all_columns = []
+        all_measures = []
+        all_tables = []
+
+        for field in fields:
+
+            if field["Table"]:
+                all_tables.append(
+                    field["Table"]
+                )
+
+            if field["Column"]:
+                all_columns.append(
+                    format_field(
+                        field["Table"],
+                        field["Column"],
+                        "",
+                        field["Aggregation"]
+                    )
+                )
+
+            if field["Measure"]:
+                all_measures.append(
+                    format_field(
+                        field["Table"],
+                        "",
+                        field["Measure"],
+                        field["Aggregation"]
+                    )
+                )
+
+        # ----------------------------------------------------
+        # Role-specific fields
+        # ----------------------------------------------------
+
+        x_axis = []
+
+        y_axis = []
+
+        values = []
+
+        legend = []
+
+        tooltip = []
+
+        rows = []
+
+        columns = []
+
+        details = []
+
+        small_multiples = []
+
+        for role, role_values in role_fields.items():
+
+            if role in [
+                "X Axis",
+                "X Axis / Category",
+                "Category"
+            ]:
+
+                x_axis.extend(
+                    role_values
+                )
+
+            elif role in [
+                "Y Axis",
+                "Secondary Y Axis"
+            ]:
+
+                y_axis.extend(
+                    role_values
+                )
+
+            elif role == "Values":
+
+                values.extend(
+                    role_values
+                )
+
+            elif role == "Legend":
+
+                legend.extend(
+                    role_values
+                )
+
+            elif role == "Tooltips":
+
+                tooltip.extend(
+                    role_values
+                )
+
+            elif role == "Rows":
+
+                rows.extend(
+                    role_values
+                )
+
+            elif role == "Columns":
+
+                columns.extend(
+                    role_values
+                )
+
+            elif role == "Details":
+
+                details.extend(
+                    role_values
+                )
+
+            elif role == "Small Multiples":
+
+                small_multiples.extend(
+                    role_values
+                )
+
+        # ----------------------------------------------------
+        # Query refs
+        # ----------------------------------------------------
+
+        query_refs = extract_query_refs(
+            visual_json
+        )
+
+        # ----------------------------------------------------
+        # Query text
+        # ----------------------------------------------------
+
+        readable_query = extract_readable_query(
+            visual_json
+        )
+
+        raw_query = ""
+
+        query_objects = extract_query_objects(
+            visual_json
+        )
+
+        if query_objects:
+
+            raw_query = "\n".join(
+                [
+                    safe_json(
+                        x
+                    )
+                    for x in query_objects
+                ]
+            )
+
+        # ----------------------------------------------------
+        # Filters
+        # ----------------------------------------------------
+
+        visual_filters = extract_filters(
+            visual_json
+        )
+
+        # ----------------------------------------------------
+        # Sort
+        # ----------------------------------------------------
+
+        sort_info = extract_sort_info(
+            visual_json
+        )
+
+        # ----------------------------------------------------
+        # Interaction
+        # ----------------------------------------------------
+
+        interaction_info = (
+            extract_interaction_info(
+                visual_json
+            )
+        )
+
+        # ----------------------------------------------------
+        # Build record
+        # ----------------------------------------------------
+
+        record = {
+
+            "Visual #":
+                visual_number,
+
+            "Visual":
+                visual_name,
+
+            "Visual Type":
+                visual_type,
+
+            "Chart / Visual Title":
+                title,
+
+            "Technical Visual ID":
+                visual_folder.name,
+
+            "Tables Used":
+                join_unique(
+                    all_tables
+                ),
+
+            "X Axis / Category":
+                join_unique(
+                    x_axis
+                ),
+
+            "Y Axis":
+                join_unique(
+                    y_axis
+                ),
+
+            "Values / Measures":
+                join_unique(
+                    values
+                ),
+
+            "Legend":
+                join_unique(
+                    legend
+                ),
+
+            "Tooltips":
+                join_unique(
+                    tooltip
+                ),
+
+            "Rows":
+                join_unique(
+                    rows
+                ),
+
+            "Columns":
+                join_unique(
+                    columns
+                ),
+
+            "Details":
+                join_unique(
+                    details
+                ),
+
+            "Small Multiples":
+                join_unique(
+                    small_multiples
+                ),
+
+            "All Columns Used":
+                join_unique(
+                    all_columns
+                ),
+
+            "All Measures Used":
+                join_unique(
+                    all_measures
+                ),
+
+            "Query References":
+                join_unique(
+                    query_refs
+                ),
+
+            "Readable Query":
+                readable_query,
+
+            "Visual Filters":
+                visual_filters,
+
+            "Page Filters":
+                page_filters,
+
+            "Sort":
+                sort_info,
+
+            "X":
+                position.get(
+                    "X",
+                    ""
+                ),
+
+            "Y":
+                position.get(
+                    "Y",
+                    ""
+                ),
+
+            "Width":
+                position.get(
+                    "Width",
+                    ""
+                ),
+
+            "Height":
+                position.get(
+                    "Height",
+                    ""
+                ),
+
+            "Z Order":
+                position.get(
+                    "Z Order",
+                    ""
+                ),
+
+            "Interaction / Configuration":
+                interaction_info,
+
+            "Raw Query / Technical Details":
+                raw_query
+        }
+
+        visual_records.append(
+            record
+        )
+
+    return (
+        page_name,
+        page_filters,
+        visual_records
+    )
+
+
+# ============================================================
+# REPORT DISCOVERY
+# ============================================================
+
+def find_report_folder(
+    pbip_folder
+):
+
+    pbip_folder = Path(
+        pbip_folder
+    )
+
+    report_folders = list(
+        pbip_folder.glob(
+            "*.Report"
+        )
+    )
+
+    if not report_folders:
+
+        raise FileNotFoundError(
+            "No *.Report folder found."
+        )
+
+    return report_folders[0]
+
+
+# ============================================================
+# EXTRACT REPORT
+# ============================================================
+
+def extract_report(
+    pbip_folder
+):
+
+    pbip_folder = Path(
+        pbip_folder
+    )
+
+    report_folder = find_report_folder(
+        pbip_folder
+    )
+
+    print(
+        f"\nReport Folder:\n{report_folder}"
+    )
+
+    definition_folder = (
+        report_folder /
+        "definition"
+    )
+
+    if not definition_folder.exists():
+
+        raise FileNotFoundError(
+            "definition folder not found. "
+            "Make sure Enhanced PBIR is enabled."
+        )
+
+    report_json_path = (
+        definition_folder /
+        "report.json"
+    )
+
+    report_json = {}
+
+    if report_json_path.exists():
+
+        report_json = load_json(
+            report_json_path
+        )
+
+    report_filters = extract_filters(
+        report_json
+    )
+
+    pages_folder = (
+        definition_folder /
+        "pages"
+    )
+
+    if not pages_folder.exists():
+
+        raise FileNotFoundError(
+            "definition/pages folder not found."
+        )
+
+    page_folders = [
+        p
+        for p in pages_folder.iterdir()
+        if p.is_dir()
+    ]
+
+    print(
+        f"Pages found: {len(page_folders)}"
+    )
+
+    page_results = []
+
+    all_visuals = []
+
+    for page_number, page_folder in enumerate(
+        page_folders,
+        start=1
+    ):
+
+        print(
+            f"\nProcessing Page {page_number}: "
+            f"{page_folder.name}"
+        )
+
+        (
+            page_name,
+            page_filters,
+            visual_records
+        ) = extract_page(
+            page_folder,
+            page_number
+        )
+
+        print(
+            f"   Page Name: {page_name}"
+        )
+
+        print(
+            f"   Visuals: "
+            f"{len(visual_records)}"
+        )
+
+        page_summary = create_page_summary(
+            page_name,
+            page_number,
+            page_filters,
+            visual_records
+        )
+
+        page_results.append(
+            page_summary
+        )
+
+        for record in visual_records:
+
+            record["Page #"] = (
+                page_number
+            )
+
+            record["Page Name"] = (
+                page_name
+            )
+
+            all_visuals.append(
+                record
+            )
+
+    return {
+
+        "report_folder":
+            report_folder,
+
+        "report_filters":
+            report_filters,
+
+        "pages":
+            page_results,
+
+        "visuals":
+            all_visuals
+    }
+
+
+# ============================================================
+# EXCEL FORMATTING
+# ============================================================
+
+def format_worksheet(
+    ws
+):
+
+    # Freeze top row
+    ws.freeze_panes = "A2"
+
+    # Filter
+    if ws.max_row > 1:
+        ws.auto_filter.ref = ws.dimensions
+
+    # Header
+    for cell in ws[1]:
+
+        cell.font = Font(
+            bold=True
+        )
+
+        cell.alignment = Alignment(
+            horizontal="center",
+            vertical="center",
+            wrap_text=True
+        )
+
+    # Body
+    for row in ws.iter_rows(
+        min_row=2
+    ):
+
+        for cell in row:
+
+            cell.alignment = Alignment(
+                vertical="top",
+                wrap_text=True
+            )
+
+    # Width
+    for column_cells in ws.columns:
+
+        max_length = 0
+
+        column_letter = (
+            get_column_letter(
+                column_cells[0].column
+            )
+        )
+
+        for cell in column_cells:
+
+            try:
+
+                value_length = len(
+                    str(
+                        cell.value
+                        if cell.value is not None
+                        else ""
+                    )
+                )
+
+                max_length = max(
+                    max_length,
+                    value_length
+                )
+
+            except Exception:
+                pass
+
+        # Keep Excel usable
+        width = min(
+            max(
+                max_length + 2,
+                12
+            ),
+            45
+        )
+
+        ws.column_dimensions[
+            column_letter
+        ].width = width
+
+
+def safe_sheet_name(
+    name
+):
+
+    # Excel restrictions
+    name = re.sub(
+        r'[\\/*?:\[\]]',
+        "_",
+        name
+    )
+
+    name = name.strip()
+
+    if not name:
+        name = "Page"
+
+    # Max 31 chars
+    return name[:31]
+
+
+def unique_sheet_name(
+    base_name,
+    existing
+):
+
+    base_name = safe_sheet_name(
+        base_name
+    )
+
+    if base_name not in existing:
+        return base_name
+
+    counter = 2
+
+    while True:
+
+        suffix = f"_{counter}"
+
+        candidate = (
+            base_name[:31-len(suffix)]
+            + suffix
+        )
+
+        if candidate not in existing:
+            return candidate
+
+        counter += 1
+
+
+# ============================================================
+# WRITE EXCEL
+# ============================================================
+
+def write_excel(
+    data,
+    output_file
+):
+
+    with pd.ExcelWriter(
+        output_file,
+        engine="openpyxl"
+    ) as writer:
+
+        # ====================================================
+        # REPORT SUMMARY
+        # ====================================================
+
+        report_folder = data[
+            "report_folder"
+        ]
+
+        report_summary = pd.DataFrame([{
+
+            "Report Project":
+                report_folder.parent.name,
+
+            "Report Folder":
+                report_folder.name,
+
+            "Report Path":
+                str(report_folder),
+
+            "Number of Pages":
+                len(data["pages"]),
+
+            "Total Visuals":
+                len(data["visuals"]),
+
+            "Report Filters":
+                data["report_filters"]
+
+        }])
+
+        report_summary.to_excel(
+            writer,
+            sheet_name="Report Summary",
+            index=False
+        )
+
+        # ====================================================
+        # PAGE SUMMARY
+        # ====================================================
+
+        page_summary = pd.DataFrame(
+            data["pages"]
+        )
+
+        page_summary.to_excel(
+            writer,
+            sheet_name="All Pages",
+            index=False
+        )
+
+        # ====================================================
+        # ALL VISUALS
+        # ====================================================
+
+        all_visuals = pd.DataFrame(
+            data["visuals"]
+        )
+
+        # Put Page information first
+        preferred_columns = [
+
+            "Page #",
+            "Page Name",
+            "Visual #",
+            "Visual",
+            "Visual Type",
+            "Chart / Visual Title",
+            "Technical Visual ID",
+
+            "Tables Used",
+
+            "X Axis / Category",
+            "Y Axis",
+            "Values / Measures",
+
+            "Legend",
+            "Tooltips",
+
+            "Rows",
+            "Columns",
+            "Details",
+            "Small Multiples",
+
+            "All Columns Used",
+            "All Measures Used",
+
+            "Query References",
+            "Readable Query",
+
+            "Visual Filters",
+            "Page Filters",
+
+            "Sort",
+
+            "X",
+            "Y",
+            "Width",
+            "Height",
+            "Z Order",
+
+            "Interaction / Configuration",
+
+            "Raw Query / Technical Details"
+        ]
+
+        available_columns = [
+            c
+            for c in preferred_columns
+            if c in all_visuals.columns
+        ]
+
+        all_visuals = all_visuals[
+            available_columns
+        ]
+
+        all_visuals.to_excel(
+            writer,
+            sheet_name="All Visuals",
+            index=False
+        )
+
+        # ====================================================
+        # ONE SHEET PER POWER BI PAGE
+        # ====================================================
+
+        existing_sheet_names = set()
+
+        existing_sheet_names.add(
+            "Report Summary"
+        )
+
+        existing_sheet_names.add(
+            "All Pages"
+        )
+
+        existing_sheet_names.add(
+            "All Visuals"
+        )
+
+        page_groups = (
+            all_visuals.groupby(
+                [
+                    "Page #",
+                    "Page Name"
+                ],
+                sort=False
+            )
+        )
+
+        for (
+            page_key,
+            page_df
+        ) in page_groups:
+
+            page_number, page_name = (
+                page_key
+            )
+
+            sheet_base = (
+                f"Page {page_number}"
+            )
+
+            sheet_name = unique_sheet_name(
+                sheet_base,
+                existing_sheet_names
+            )
+
+            existing_sheet_names.add(
+                sheet_name
+            )
+
+            # Remove page-specific
+            # duplicate information
+            page_df = page_df.drop(
+                columns=[
+                    "Page #",
+                    "Page Name"
+                ],
+                errors="ignore"
+            )
+
+            page_df.to_excel(
+                writer,
+                sheet_name=sheet_name,
+                index=False
+            )
+
+    # ========================================================
+    # POST FORMAT
+    # ========================================================
+
+    wb = load_workbook(
+        output_file
+    )
+
+    for ws in wb.worksheets:
+
+        format_worksheet(
+            ws
+        )
+
+        # Increase row height
+        # for readable multiline fields
+        for row in range(
+            2,
+            ws.max_row + 1
+        ):
+
+            ws.row_dimensions[
+                row
+            ].height = 45
+
+    wb.save(
+        output_file
+    )
+
+    print(
+        "\n=========================================="
+    )
+
+    print(
+        "POWER BI ANALYSIS CREATED"
+    )
+
+    print(
+        "=========================================="
+    )
+
+    print(
+        f"Output:\n{output_file}"
+    )
+
+    print(
+        "=========================================="
+    )
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+if __name__ == "__main__":
+
+    print(
+        "\n=========================================="
+    )
+
+    print(
+        "POWER BI PBIP REPORT ANALYZER"
+    )
+
+    print(
+        "=========================================="
+    )
+
+    data = extract_report(
+        PBIP_FOLDER
+    )
+
+    write_excel(
+        data,
+        OUTPUT_EXCEL
+    )
+
+    print(
+        "\nCompleted."
+    )
+
