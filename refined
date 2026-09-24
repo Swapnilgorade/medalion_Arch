@@ -1,0 +1,803 @@
+
+import pandas as pd
+from pathlib import Path
+from openpyxl import load_workbook
+from openpyxl.styles import Alignment
+
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+INPUT_FILE = r"E:\test_env\MyPowerBiReport\PowerBI_Detailed_Report_Analysis.xlsx"
+OUTPUT_FILE = r"E:\test_env\powerbi_query_reference_analysis_test.xlsx"
+
+
+# ------------------------------------------------------------
+# Sheets to skip
+# ------------------------------------------------------------
+
+SKIP_SHEETS = [
+    "Page Summary",
+    "Page Readme"
+]
+
+# ------------------------------------------------------------
+# Process ONLY sheets starting with this
+# ------------------------------------------------------------
+
+SHEET_PREFIX = "Page"
+
+# ------------------------------------------------------------
+# Source Excel column names
+# Spaces will automatically be normalized
+# ------------------------------------------------------------
+
+VISUAL_TYPE_COLUMN = "Visual Type"
+QUERY_REFERENCE_COLUMN = "Query References"
+ALL_MEASURES_COLUMN = "All Measures Used"
+
+# ------------------------------------------------------------
+# Delimiter
+# ------------------------------------------------------------
+
+QUERY_REFERENCE_DELIMITER = "|"
+
+
+# ============================================================
+# OUTPUT COLUMNS
+# ============================================================
+
+OUTPUT_COLUMNS = [
+    "Visual Type",
+    "Table Used",
+    "Column Used",
+    "Categories",
+    "KPI Defination",
+    "Filter",
+    "Measure",
+    "Legend_Name"
+]
+
+
+# ============================================================
+# HEADER NORMALIZATION
+# ============================================================
+
+def normalize_header(header):
+
+    if pd.isna(header):
+        return ""
+
+    # Convert multiple spaces into one
+    return " ".join(
+        str(header).strip().split()
+    )
+
+
+def normalize_dataframe_headers(df):
+
+    df = df.copy()
+
+    df.columns = [
+        normalize_header(column)
+        for column in df.columns
+    ]
+
+    return df
+
+
+# ============================================================
+# VALUE CLEANING
+# ============================================================
+
+def clean_value(value):
+
+    if pd.isna(value):
+        return ""
+
+    return str(value).strip()
+
+
+# ============================================================
+# SPLIT TABLE / COLUMN
+# ============================================================
+
+def split_table_column(reference):
+
+    reference = clean_value(reference)
+
+    if not reference:
+        return "", ""
+
+    # Split only on FIRST "."
+    if "." in reference:
+
+        table_name, column_name = reference.split(
+            ".",
+            1
+        )
+
+        return (
+            table_name.strip(),
+            column_name.strip()
+        )
+
+    # If there is no "."
+    return "", reference.strip()
+
+
+# ============================================================
+# GET MEASURE NAMES
+# ============================================================
+
+def get_measure_names(value):
+
+    measure_names = set()
+
+    value = clean_value(value)
+
+    if not value:
+        return measure_names
+
+    # Split using |
+    parts = value.split(
+        QUERY_REFERENCE_DELIMITER
+    )
+
+    for part in parts:
+
+        part = part.strip()
+
+        if not part:
+            continue
+
+        # Store complete value
+        measure_names.add(part)
+
+        # Store part after .
+        if "." in part:
+
+            _, measure_name = part.split(
+                ".",
+                1
+            )
+
+            measure_names.add(
+                measure_name.strip()
+            )
+
+    return measure_names
+
+
+# ============================================================
+# CHECK WHETHER REFERENCE IS MEASURE
+# ============================================================
+
+def is_measure(
+    table_name,
+    column_name,
+    all_measures_value
+):
+
+    measure_names = get_measure_names(
+        all_measures_value
+    )
+
+    if not column_name:
+        return False
+
+    # --------------------------------------------------------
+    # Check Table.Column
+    # --------------------------------------------------------
+
+    if table_name:
+
+        full_reference = (
+            f"{table_name}.{column_name}"
+        )
+
+        if full_reference in measure_names:
+            return True
+
+    # --------------------------------------------------------
+    # Check only Column / Measure name
+    # --------------------------------------------------------
+
+    if column_name in measure_names:
+        return True
+
+    return False
+
+
+# ============================================================
+# PROCESS ONE SHEET
+# ============================================================
+
+def process_sheet(df, sheet_name):
+
+    # --------------------------------------------------------
+    # Normalize headers
+    # --------------------------------------------------------
+
+    df = normalize_dataframe_headers(df)
+    
+    print()
+    print(f"  Columns detected in '{sheet_name}':")
+
+    for column in df.columns:
+        print(f"    [{column}]")
+
+    # --------------------------------------------------------
+    # Required columns
+    # --------------------------------------------------------
+
+    required_columns = [
+        VISUAL_TYPE_COLUMN,
+        QUERY_REFERENCE_COLUMN,
+        ALL_MEASURES_COLUMN
+    ]
+
+    missing_columns = [
+        column
+        for column in required_columns
+        if column not in df.columns
+    ]
+
+    if missing_columns:
+
+        print()
+        print(
+            f"  ERROR: Missing columns:"
+        )
+
+        for column in missing_columns:
+            print(f"    {column}")
+
+        return pd.DataFrame(
+            columns=OUTPUT_COLUMNS
+        )
+
+    # --------------------------------------------------------
+    # Output rows
+    # --------------------------------------------------------
+
+    output_rows = []
+
+    # --------------------------------------------------------
+    # Process every original visual
+    # --------------------------------------------------------
+
+    for _, row in df.iterrows():
+
+        visual_type = clean_value(
+            row[VISUAL_TYPE_COLUMN]
+        )
+
+        query_references = clean_value(
+            row[QUERY_REFERENCE_COLUMN]
+        )
+
+        all_measures = clean_value(
+            row[ALL_MEASURES_COLUMN]
+        )
+
+        # ----------------------------------------------------
+        # Split Query References
+        # ----------------------------------------------------
+
+        references = []
+
+        if query_references:
+
+            references = [
+                reference.strip()
+                for reference in query_references.split(
+                    QUERY_REFERENCE_DELIMITER
+                )
+                if reference.strip()
+            ]
+
+        # ----------------------------------------------------
+        # No Query Reference
+        # ----------------------------------------------------
+
+        if not references:
+
+            output_rows.append({
+
+                "Visual Type": visual_type,
+
+                "Table Used": "",
+
+                "Column Used": "",
+
+                "Categories": "",
+
+                "KPI Defination": "",
+
+                "Filter": "",
+
+                "Measure": "",
+
+                "Legend_Name": ""
+            })
+
+            # Blank row after visual
+            output_rows.append({
+                column: ""
+                for column in OUTPUT_COLUMNS
+            })
+
+            continue
+
+        # ----------------------------------------------------
+        # Explode references
+        # ----------------------------------------------------
+
+        for reference in references:
+
+            table_name, column_name = (
+                split_table_column(reference)
+            )
+
+            # ------------------------------------------------
+            # Category
+            # ------------------------------------------------
+
+            if is_measure(
+                table_name,
+                column_name,
+                all_measures
+            ):
+
+                category = "Measure"
+
+            else:
+
+                category = "Direct Column"
+
+            # ------------------------------------------------
+            # Add row
+            # ------------------------------------------------
+
+            output_rows.append({
+
+                "Visual Type": visual_type,
+
+                "Table Used": table_name,
+
+                "Column Used": column_name,
+
+                "Categories": category,
+
+                "KPI Defination": "",
+
+                "Filter": "",
+
+                "Measure": "",
+
+                "Legend_Name": ""
+            })
+
+        # ----------------------------------------------------
+        # ONE blank row AFTER COMPLETE VISUAL
+        # ----------------------------------------------------
+
+        output_rows.append({
+            column: ""
+            for column in OUTPUT_COLUMNS
+        })
+
+    return pd.DataFrame(
+        output_rows,
+        columns=OUTPUT_COLUMNS
+    )
+
+
+# ============================================================
+# MERGE VISUAL TYPE
+# ============================================================
+
+def merge_visual_type(ws):
+
+    column = 1
+
+    start_row = None
+    current_value = None
+
+    for row in range(2, ws.max_row + 1):
+
+        value = ws.cell(
+            row=row,
+            column=column
+        ).value
+
+        value = clean_value(value)
+
+        # ----------------------------------------------------
+        # Blank row
+        # ----------------------------------------------------
+
+        if value == "":
+
+            if (
+                start_row is not None
+                and row - 1 > start_row
+            ):
+
+                ws.merge_cells(
+                    start_row=start_row,
+                    start_column=column,
+                    end_row=row - 1,
+                    end_column=column
+                )
+
+            start_row = None
+            current_value = None
+
+            continue
+
+        # ----------------------------------------------------
+        # First value
+        # ----------------------------------------------------
+
+        if start_row is None:
+
+            start_row = row
+            current_value = value
+
+            continue
+
+        # ----------------------------------------------------
+        # New visual
+        # ----------------------------------------------------
+
+        if value != current_value:
+
+            if row - 1 > start_row:
+
+                ws.merge_cells(
+                    start_row=start_row,
+                    start_column=column,
+                    end_row=row - 1,
+                    end_column=column
+                )
+
+            start_row = row
+            current_value = value
+
+    # --------------------------------------------------------
+    # Last visual
+    # --------------------------------------------------------
+
+    if (
+        start_row is not None
+        and ws.max_row > start_row
+    ):
+
+        last_row = ws.max_row
+
+        while (
+            last_row > start_row
+            and clean_value(
+                ws.cell(
+                    row=last_row,
+                    column=1
+                ).value
+            ) == ""
+        ):
+            last_row -= 1
+
+        if last_row > start_row:
+
+            ws.merge_cells(
+                start_row=start_row,
+                start_column=column,
+                end_row=last_row,
+                end_column=column
+            )
+
+
+# ============================================================
+# MERGE TABLE USED
+# ============================================================
+
+def merge_table_used(ws):
+
+    column = 2
+
+    start_row = None
+    current_table = None
+
+    for row in range(2, ws.max_row + 1):
+
+        value = ws.cell(
+            row=row,
+            column=column
+        ).value
+
+        value = clean_value(value)
+
+        # ----------------------------------------------------
+        # Blank row
+        # ----------------------------------------------------
+
+        if value == "":
+
+            if (
+                start_row is not None
+                and row - 1 > start_row
+            ):
+
+                ws.merge_cells(
+                    start_row=start_row,
+                    start_column=column,
+                    end_row=row - 1,
+                    end_column=column
+                )
+
+            start_row = None
+            current_table = None
+
+            continue
+
+        # ----------------------------------------------------
+        # First table
+        # ----------------------------------------------------
+
+        if start_row is None:
+
+            start_row = row
+            current_table = value
+
+            continue
+
+        # ----------------------------------------------------
+        # Table changed
+        # ----------------------------------------------------
+
+        if value != current_table:
+
+            if row - 1 > start_row:
+
+                ws.merge_cells(
+                    start_row=start_row,
+                    start_column=column,
+                    end_row=row - 1,
+                    end_column=column
+                )
+
+            start_row = row
+            current_table = value
+
+    # --------------------------------------------------------
+    # Last table
+    # --------------------------------------------------------
+
+    if (
+        start_row is not None
+        and ws.max_row > start_row
+    ):
+
+        last_row = ws.max_row
+
+        while (
+            last_row > start_row
+            and clean_value(
+                ws.cell(
+                    row=last_row,
+                    column=2
+                ).value
+            ) == ""
+        ):
+
+            last_row -= 1
+
+        if last_row > start_row:
+
+            ws.merge_cells(
+                start_row=start_row,
+                start_column=column,
+                end_row=last_row,
+                end_column=column
+            )
+
+
+# ============================================================
+# FORMAT WORKSHEET
+# ============================================================
+
+def format_worksheet(ws):
+
+    for row in ws.iter_rows():
+
+        for cell in row:
+
+            cell.alignment = Alignment(
+                vertical="center",
+                horizontal="left",
+                wrap_text=True
+            )
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def process_excel(
+    input_file,
+    output_file
+):
+
+    input_path = Path(input_file)
+
+    if not input_path.exists():
+
+        raise FileNotFoundError(
+            f"Input file not found:\n{input_file}"
+        )
+
+    # --------------------------------------------------------
+    # Read workbook
+    # --------------------------------------------------------
+
+    excel_file = pd.ExcelFile(
+        input_file
+    )
+
+    print("=" * 70)
+    print("POWER BI EXCEL PROCESSING")
+    print("=" * 70)
+
+    print()
+
+    processed = 0
+    skipped = 0
+
+    # --------------------------------------------------------
+    # Create output workbook
+    # --------------------------------------------------------
+
+    with pd.ExcelWriter(
+        output_file,
+        engine="openpyxl"
+    ) as writer:
+
+        for sheet_name in excel_file.sheet_names:
+
+            # =================================================
+            # Only Page sheets
+            # =================================================
+
+            if not sheet_name.startswith(
+                SHEET_PREFIX
+            ):
+
+                print(
+                    f"SKIP: {sheet_name} "
+                    f"(does not start with Page)"
+                )
+
+                skipped += 1
+                continue
+
+            # =================================================
+            # Configured skip
+            # =================================================
+
+            if sheet_name in SKIP_SHEETS:
+
+                print(
+                    f"SKIP: {sheet_name} "
+                    f"(in SKIP_SHEETS)"
+                )
+
+                skipped += 1
+                continue
+
+            # =================================================
+            # Read
+            # =================================================
+
+            print()
+            print(
+                f"PROCESSING: {sheet_name}"
+            )
+
+            df = pd.read_excel(
+                input_file,
+                sheet_name=sheet_name
+            )
+
+            # =================================================
+            # Process
+            # =================================================
+
+            output_df = process_sheet(
+                df,
+                sheet_name
+            )
+
+            # =================================================
+            # Write
+            # =================================================
+
+            output_df.to_excel(
+                writer,
+                sheet_name=sheet_name[:31],
+                index=False
+            )
+
+            print()
+            print(
+                f"  Input rows : {len(df)}"
+            )
+
+            print(
+                f"  Output rows: {len(output_df)}"
+            )
+
+            processed += 1
+
+    # ========================================================
+    # Load output workbook
+    # ========================================================
+
+    wb = load_workbook(
+        output_file
+    )
+
+    # ========================================================
+    # Merge + format
+    # ========================================================
+
+    for ws in wb.worksheets:
+
+        # Visual Type
+        merge_visual_type(ws)
+
+        # Table Used
+        merge_table_used(ws)
+
+        # Alignment
+        format_worksheet(ws)
+
+    # ========================================================
+    # Save
+    # ========================================================
+
+    wb.save(
+        output_file
+    )
+
+    print()
+    print("=" * 70)
+    print("COMPLETED")
+    print("=" * 70)
+
+    print(
+        f"Processed sheets : {processed}"
+    )
+
+    print(
+        f"Skipped sheets   : {skipped}"
+    )
+
+    print(
+        f"Output file      : {output_file}"
+    )
+
+    print("=" * 70)
+
+
+# ============================================================
+# RUN
+# ============================================================
+
+if __name__ == "__main__":
+
+    process_excel(
+        INPUT_FILE,
+        OUTPUT_FILE
+    )
