@@ -1,0 +1,20 @@
+## 1. Existing ADF Assessment
+
+| No. | Item Checked | Findings |
+|---|---|---|
+| 1 | Existing pipelines | Not identified |
+| 2 | Linked services | 3 linked services identified: ADLS, Databricks, and Key Vault |
+| 3 | Existing source connections | No SharePoint source connection confirmed yet |
+| 4 | Source-to-target mapping | Not identified |
+| 5 | Existing triggers / schedules | Not identified |
+| 6 | Existing ingestion logic | Not identified |
+
+### Linked Services Identified
+
+| No. | Linked Service | Purpose / Details to Verify |
+|---|---|---|
+| 1 | ADLS | Storage connection; verify the storage account and container details |
+| 2 | Databricks | Databricks connection; verify workspace and authentication configuration |
+| 3 | Key Vault | Secret management connection; verify the configured Key Vault and access permissions |
+
+**Note:** The linked services confirm that these connections are configured in ADF, but their presence alone does not confirm that they are actively used by an ingestion pipeline.
