@@ -1,0 +1,33 @@
+## Description
+
+Develop an ADF pipeline to extract the below files from SharePoint, store them in ADLS Gen2, and populate the corresponding Bronze Delta tables in Azure Databricks.
+
+**Source-to-Target Mapping**
+
+| Source File | ADLS Landing Folder | Databricks Target Table |
+|---|---|---|
+| Customer_Master.xlsx | `/landing/sharepoint/customer/` | `bronze.customer_master` |
+| Sales_Transactions.xlsx | `/landing/sharepoint/sales/` | `bronze.sales_transactions` |
+| Product_Master.xlsx | `/landing/sharepoint/product/` | `bronze.product_master` |
+| Store_Master.csv | `/landing/sharepoint/store/` | `bronze.store_master` |
+| Inventory_Details.xlsx | `/landing/sharepoint/inventory/` | `bronze.inventory_details` |
+
+**Implementation Scope**
+1. Extract the specified files from the agreed SharePoint site and folders using ADF.
+2. Land the source files in their respective ADLS Gen2 folders.
+3. Read the landed files in Databricks and populate the corresponding Bronze Delta tables.
+4. Capture ingestion status, record counts, and error details.
+5. Validate successful file transfer and data loading.
+
+*Note: File names, paths, and table names above are illustrative and must be replaced with the confirmed project mappings.*
+
+## Acceptance Criteria
+
+1. ADF successfully extracts the specified files from SharePoint.
+2. All files are landed in their respective ADLS Gen2 folders.
+3. Databricks successfully reads the landed files and populates the mapped Bronze Delta tables.
+4. Source-to-target mapping, schema, and record counts are validated as agreed.
+5. Failed or missing files and ingestion errors are logged.
+6. Reprocessing follows the agreed load strategy and avoids unintended duplicate records.
+7. Required access permissions are configured for SharePoint, ADLS Gen2, and Databricks.
+8. End-to-end execution is tested and successful results are documented.
