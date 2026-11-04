@@ -1,0 +1,21 @@
+# Meeting Summary
+
+### 1. Operational Monitoring
+- Ed will help configure alerts for the **main branch** once the pipeline changes have been pushed to it.
+- Alerts will help monitor pipeline execution and identify failures.
+
+### 2. Pipeline Logging
+- Azure Log Analytics is already configured for ADF logs.
+- Pipeline failures can be identified using KQL queries.
+- **Decision:** We will skip the additional pipeline log table approach and leverage the existing Log Analytics setup.
+
+### 3. PostgreSQL Integration
+- Data will be transferred from Databricks to PostgreSQL using the **ADF Copy Data activity**.
+- The extraction approach will use the following query:
+
+  `SELECT * FROM Table`
+
+### 4. Databricks Table Structure
+- Initially, tables will be created with only the columns required for the current functional story.
+- As we progress with additional functional stories, the existing tables will be updated by adding the newly required columns.
+- This approach will help us implement the required functionality incrementally without introducing unnecessary columns upfront.
