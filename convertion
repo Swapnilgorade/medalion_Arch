@@ -19,3 +19,12 @@
 - Initially, tables will be created with only the columns required for the current functional story.
 - As we progress with additional functional stories, the existing tables will be updated by adding the newly required columns.
 - This approach will help us implement the required functionality incrementally without introducing unnecessary columns upfront.
+
+
+Just wanted to confirm two things:
+
+Will you be helping us configure the pipeline failure alerts on the main branch once we push the pipeline changes?
+
+Could you please review the meeting summary and confirm whether the discussed points and decisions are captured correctly?
+
+Please let me know if anything needs to be corrected or updated.
