@@ -1,0 +1,99 @@
+# Azure Data Factory – Local PostgreSQL Connectivity Requirements
+## Backend Infrastructure & Access Configuration
+
+**Purpose:** Configure Azure Data Factory connectivity to the Local Testing PostgreSQL environment by replicating the existing connectivity and permission setup available for the Dev PostgreSQL environment.
+
+### 1. Project Background & Actual Requirement
+
+Currently, Azure Data Factory is configured to connect to the Dev PostgreSQL environment.
+
+As part of the revised development and deployment approach, database tables will initially be created and validated in the Local Testing PostgreSQL environment instead of directly creating them in the Dev PostgreSQL environment.
+
+Once development and testing are completed, the approved database schema and changes will be promoted to the Dev PostgreSQL environment through Liquibase or backend deployment pipelines.
+
+**Proposed workflow:**
+
+1. ADF connects to Local Testing PostgreSQL.
+2. Required tables and database objects are created and validated in the Local Testing environment.
+3. Data ingestion and pipeline testing are performed against the Local Testing database.
+4. Once testing is completed and changes are approved, the backend team deploys the database schema and changes to Dev using Liquibase or backend deployment pipelines.
+
+### 2. Current and Proposed Architecture
+
+| Component | Current Setup | Required Setup |
+|---|---|---|
+| Azure Data Factory | Configured | Existing configuration to be reused |
+| Dev PostgreSQL | Connected to ADF | Used as deployment target |
+| Local Testing PostgreSQL | Not configured | New ADF connectivity required |
+| Authentication | Managed Identity | Same authentication approach |
+| Integration Runtime | Managed VNet IR | Reuse existing IR, subject to network compatibility |
+| Database Permissions | Configured for Dev | Equivalent permissions required for Local Testing |
+| Schema Deployment | Backend pipeline | Liquibase / Backend deployment pipeline |
+
+**Expected architecture:**
+
+ADF → Managed VNet Integration Runtime → Local Testing PostgreSQL → Development & Validation → Liquibase / Backend Pipeline → Dev PostgreSQL.
+
+### 3. Backend Configuration Required from IT Team
+
+The objective is to replicate the existing ADF-to-Dev PostgreSQL configuration for the Local Testing PostgreSQL environment.
+
+**A. Network Configuration**
+
+- Verify network connectivity between ADF Managed VNet Integration Runtime and Local Testing PostgreSQL.
+- Configure the required firewall rules or Managed Private Endpoint, depending on the Local PostgreSQL networking configuration.
+- Allow TCP port 5432.
+- Verify PostgreSQL endpoint and DNS resolution.
+- Ensure SSL/TLS connectivity.
+
+**B. Authentication & Identity Configuration**
+
+- Reuse the existing ADF System-Assigned Managed Identity.
+- Authorize the same ADF Managed Identity for Local Testing PostgreSQL.
+- Configure Microsoft Entra authentication if supported by the target PostgreSQL environment.
+- Replicate the equivalent database access permissions currently configured for Dev.
+
+**C. PostgreSQL Database Permissions**
+
+Provide the same required access level on Local Testing PostgreSQL as currently available on Dev.
+
+Required permissions:
+
+- CONNECT on the target database.
+- USAGE on the target schema.
+- SELECT and INSERT on required tables.
+- UPDATE for upsert operations.
+- CREATE permissions if ADF needs to create database tables.
+
+### 4. Responsibility Matrix
+
+| Team | Required Action |
+|---|---|
+| Azure Infrastructure Team | Configure ADF connectivity to Local PostgreSQL |
+| Network/Security Team | Configure firewall, routing and endpoint connectivity |
+| PostgreSQL DBA Team | Configure authentication and replicate database permissions |
+| ADF Development Team | Configure Linked Service and validate connectivity |
+| Backend/DevOps Team | Deploy approved schema changes to Dev through Liquibase/backend pipelines |
+
+### 5. Acceptance Criteria
+
+| # | Validation | Expected Outcome |
+|---|---|---|
+| 1 | ADF Managed Identity | Existing identity reused |
+| 2 | Network Connectivity | ADF can reach Local PostgreSQL |
+| 3 | Authentication | Successfully authenticated |
+| 4 | Database Permissions | Equivalent to existing Dev permissions |
+| 5 | ADF Linked Service | Connection successful |
+| 6 | Table Creation | Successful in Local Testing |
+| 7 | Data Loading | Successful |
+| 8 | Schema Deployment | Approved changes promoted to Dev through backend pipeline |
+
+### 6. Request to IT Team
+
+Please configure the Local Testing PostgreSQL environment with equivalent ADF connectivity and database permissions currently available for the Dev PostgreSQL environment.
+
+The objective is to reuse the existing ADF System-Assigned Managed Identity and apply the necessary network, authentication and database-level permissions to the Local Testing environment.
+
+This will allow the development team to create tables, perform data ingestion and validate the complete pipeline in Local Testing before the approved database schema changes are deployed to Dev through Liquibase or backend deployment pipelines.
+
+**Expected Outcome:** ADF should be able to connect to Local Testing PostgreSQL and perform the required database operations using the same access model as the existing Dev PostgreSQL integration.
